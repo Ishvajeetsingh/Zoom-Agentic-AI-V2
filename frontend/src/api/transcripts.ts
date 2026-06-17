@@ -1,5 +1,5 @@
 import { apiGet, apiPost, apiUpload } from "./client";
-import type { TranscriptListItem, TranscriptDetail, PaginatedListResponse, TranscriptUploadResponse, PipelineResponse } from "../types/api";
+import type { TranscriptListItem, TranscriptDetail, PaginatedListResponse, TranscriptUploadResponse, PipelineResponse, OrchestrateResponse } from "../types/api";
 
 export interface TranscriptListParams {
   offset?: number;
@@ -29,4 +29,8 @@ export function uploadTranscript(file: File, meetingTopic?: string) {
 
 export function runPipeline(transcriptId: string) {
   return apiPost<PipelineResponse>(`/transcripts/${transcriptId}/pipeline`);
+}
+
+export function orchestrateTranscript(transcriptId: string) {
+  return apiPost<OrchestrateResponse>("/processing-runs", { transcript_id: transcriptId });
 }

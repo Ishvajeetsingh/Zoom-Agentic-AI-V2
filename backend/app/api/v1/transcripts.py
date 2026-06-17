@@ -19,13 +19,10 @@ from app.services.transcript_download_service import (
     TranscriptDownloadError,
     TranscriptDownloadService,
 )
-from app.services.chunking_service import ChunkingError, ChunkingService
-from app.services.preprocessing_service import PreprocessingService, WorkflowError
-from app.services.transcript_cleaning_service import (
-    TranscriptCleaningError,
-    TranscriptCleaningService,
+from app.services.processing_orchestrator_service import (
+    OrchestrationError,
+    ProcessingOrchestratorService,
 )
-from app.services.transcript_parse_service import TranscriptParseError, TranscriptParseService
 
 router = APIRouter()
 logger = get_logger(__name__)
@@ -329,6 +326,8 @@ def generate_questions(
         "total_prompt_tokens": result.total_prompt_tokens,
         "total_completion_tokens": result.total_completion_tokens,
         "total_duration_seconds": result.total_duration_seconds,
+        "learning_outputs_persisted": result.learning_outputs_persisted,
+        "insights_persisted": result.insights_persisted,
     }
 
 
@@ -376,73 +375,33 @@ def run_pipeline(
     transcript_id: uuid.UUID,
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
-    steps_results: list[dict[str, object]] = []
-    errors: list[str] = []
-
     transcript = transcript_repo.get_by_id(db, transcript_id)
     if transcript is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transcript not found")
 
-    if transcript.status == "metadata_received":
-        download_service = TranscriptDownloadService(db)
-        try:
-            result = download_service.download_transcript(transcript_id)
-            steps_results.append({"step": "download", "status": "completed", "transcript_id": str(result.transcript_id)})
-        except (TranscriptDownloadError, ExternalServiceError) as exc:
-            db.rollback()
-            errors.append(f"download: {exc}")
-            steps_results.append({"step": "download", "status": "failed", "error": str(exc)})
-
-    transcript = transcript_repo.get_by_id(db, transcript_id)
-    if transcript and transcript.status in ("downloaded",):
-        parse_service = TranscriptParseService(db)
-        try:
-            result = parse_service.parse_transcript(transcript_id)
-            steps_results.append({"step": "parse", "status": "completed", "segment_count": result.segment_count})
-        except (TranscriptParseError, SQLAlchemyError) as exc:
-            db.rollback()
-            errors.append(f"parse: {exc}")
-            steps_results.append({"step": "parse", "status": "failed", "error": str(exc)})
-
-    transcript = transcript_repo.get_by_id(db, transcript_id)
-    if transcript and transcript.status in ("parsed",):
-        clean_service = TranscriptCleaningService(db)
-        try:
-            result = clean_service.clean_transcript(transcript_id)
-            steps_results.append({"step": "clean", "status": "completed", "segments_cleaned": result.segments_cleaned})
-        except (TranscriptCleaningError, SQLAlchemyError) as exc:
-            db.rollback()
-            errors.append(f"clean: {exc}")
-            steps_results.append({"step": "clean", "status": "failed", "error": str(exc)})
-
-    transcript = transcript_repo.get_by_id(db, transcript_id)
-    if transcript and transcript.status in ("cleaned",):
-        chunk_service = ChunkingService(db)
-        try:
-            result = chunk_service.chunk_transcript(transcript_id)
-            steps_results.append({"step": "chunk", "status": "completed", "total_chunks": result.total_chunks})
-        except (ChunkingError, SQLAlchemyError) as exc:
-            db.rollback()
-            errors.append(f"chunk: {exc}")
-            steps_results.append({"step": "chunk", "status": "failed", "error": str(exc)})
-
-    transcript = transcript_repo.get_by_id(db, transcript_id)
-    if transcript and transcript.status in ("chunked",):
-        preprocessing = PreprocessingService(db)
-        try:
-            result = preprocessing.run_workflow(transcript_id)
-            steps_results.append({"step": "generate", "status": "completed", "total_questions": result.total_questions})
-        except (WorkflowError, SQLAlchemyError) as exc:
-            db.rollback()
-            errors.append(f"generate: {exc}")
-            steps_results.append({"step": "generate", "status": "failed", "error": str(exc)})
-
-    transcript = transcript_repo.get_by_id(db, transcript_id)
-    final_status = transcript.status if transcript else "unknown"
+    orchestrator = ProcessingOrchestratorService(db)
+    try:
+        result = orchestrator.process_transcript(transcript_id)
+    except OrchestrationError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except SQLAlchemyError as exc:
+        db.rollback()
+        logger.exception("pipeline.database_error")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Pipeline failed due to a database error",
+        ) from exc
 
     return {
-        "transcript_id": str(transcript_id),
-        "status": final_status,
-        "steps": steps_results,
-        "errors": errors,
+        "transcript_id": str(result.transcript_id),
+        "meeting_id": str(result.meeting_id) if result.meeting_id else None,
+        "status": result.status,
+        "steps_completed": result.steps_completed,
+        "total_steps": result.total_steps,
+        "steps": result.step_results,
+        "questions_generated": result.questions_generated,
+        "model_used": result.model_used,
+        "total_duration_seconds": result.total_duration_seconds,
+        "error_message": result.error_message,
     }

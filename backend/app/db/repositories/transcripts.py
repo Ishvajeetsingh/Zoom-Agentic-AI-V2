@@ -17,7 +17,9 @@ VALID_STATUSES = {
     "parsing_started", "parsed", "parsing_failed",
     "cleaning_started", "cleaned", "cleaning_failed",
     "chunking_started", "chunked", "chunking_failed",
-    "generating", "completed", "generation_failed",
+    "assessing", "generating", "generating_learning_outputs", "learning_generation_failed",
+    "synthesizing", "synthesis_failed",
+    "completed", "completed_with_warnings", "generation_failed",
 }
 
 VALID_ORDER_FIELDS = {"created_at", "updated_at", "status", "segment_count", "chunk_count", "question_count"}
@@ -92,6 +94,7 @@ def get_transcript_detail(db: Session, transcript_id: uuid.UUID) -> dict | None:
         "checksum_sha256": transcript.checksum_sha256,
         "created_at": transcript.created_at,
         "updated_at": transcript.updated_at,
+        "warnings": (transcript.metadata_json or {}).get("warnings", []),
     }
 
 
@@ -238,6 +241,11 @@ def mark_chunking_failed(db: Session, transcript: Transcript, error_message: str
     db.flush()
 
 
+def mark_assessing(db: Session, transcript: Transcript) -> None:
+    transcript.status = "assessing"
+    db.flush()
+
+
 def mark_generation_started(db: Session, transcript: Transcript) -> None:
     transcript.status = "generating"
     transcript.generation_error = None
@@ -258,8 +266,74 @@ def mark_generation_completed(
     db.flush()
 
 
+def mark_generation_completed_with_warnings(
+    db: Session,
+    transcript: Transcript,
+    *,
+    question_count: int,
+    generation_model: str,
+    warnings: list[str] | None = None,
+) -> None:
+    transcript.status = "completed_with_warnings"
+    transcript.question_count = question_count
+    transcript.generation_model = generation_model
+    transcript.generation_error = None
+    if warnings:
+        meta = dict(transcript.metadata_json or {})
+        meta["warnings"] = list(warnings)
+        transcript.metadata_json = meta
+    db.flush()
+
+
 def mark_generation_failed(db: Session, transcript: Transcript, error_message: str) -> None:
     transcript.status = "generation_failed"
+    transcript.generation_error = error_message
+    db.flush()
+
+
+def mark_generating_learning_outputs(db: Session, transcript: Transcript) -> None:
+    transcript.status = "generating_learning_outputs"
+    db.flush()
+
+
+def mark_synthesizing(db: Session, transcript: Transcript) -> None:
+    transcript.status = "synthesizing"
+    db.flush()
+
+
+def mark_learning_generation_failed(db: Session, transcript: Transcript, error_message: str) -> None:
+    transcript.status = "learning_generation_failed"
+    transcript.generation_error = error_message
+    db.flush()
+
+
+def mark_cancelled(db: Session, transcript: Transcript) -> None:
+    if transcript.status in ("generating", "assessing"):
+        transcript.status = "generation_failed"
+        transcript.generation_error = "Processing run was cancelled"
+    elif transcript.status in ("generating_learning_outputs",):
+        transcript.status = "learning_generation_failed"
+        transcript.generation_error = "Processing run was cancelled"
+    elif transcript.status in ("synthesizing",):
+        transcript.status = "synthesis_failed"
+        transcript.generation_error = "Processing run was cancelled"
+    elif transcript.status in ("download_started",):
+        transcript.status = "failed"
+        transcript.download_error = "Processing run was cancelled"
+    elif transcript.status in ("parsing_started",):
+        transcript.status = "parsing_failed"
+        transcript.parse_error = "Processing run was cancelled"
+    elif transcript.status in ("cleaning_started",):
+        transcript.status = "cleaning_failed"
+        transcript.cleaning_error = "Processing run was cancelled"
+    elif transcript.status in ("chunking_started",):
+        transcript.status = "chunking_failed"
+        transcript.chunking_error = "Processing run was cancelled"
+    db.flush()
+
+
+def mark_synthesis_failed(db: Session, transcript: Transcript, error_message: str) -> None:
+    transcript.status = "synthesis_failed"
     transcript.generation_error = error_message
     db.flush()
 

@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 
 class TranscriptListItem(BaseModel):
@@ -17,10 +17,27 @@ class TranscriptListItem(BaseModel):
     segment_count: int | None = None
     chunk_count: int | None = None
     question_count: int | None = None
+    warnings: list[str] = []
     created_at: datetime
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+    @model_validator(mode="before")
+    @classmethod
+    def extract_warnings(cls, data: object) -> object:
+        if not isinstance(data, dict):
+            try:
+                data_dict = dict(data.__dict__) if hasattr(data, "__dict__") else {}
+            except Exception:
+                return data
+            metadata = data_dict.get("metadata_json") or {}
+            if isinstance(metadata, dict):
+                data_dict["warnings"] = metadata.get("warnings", [])
+            else:
+                data_dict["warnings"] = []
+            return data_dict
+        return data
 
 
 class TranscriptListOut(BaseModel):
@@ -54,5 +71,6 @@ class TranscriptDetailOut(BaseModel):
     question_count: int
     generation_model: str | None = None
     checksum_sha256: str | None = None
+    warnings: list[str] = []
     created_at: datetime
     updated_at: datetime

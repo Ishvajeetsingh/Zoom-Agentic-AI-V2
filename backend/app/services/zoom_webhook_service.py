@@ -1,35 +1,53 @@
+from __future__ import annotations
+
+import uuid
 from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app.core.config import Settings, settings
 from app.core.logging import get_logger
-from app.db.repositories import meetings, transcripts, webhook_events
+from app.db.repositories import meetings as meeting_repo
+from app.db.repositories import runs as run_repo
+from app.db.repositories import transcripts as transcript_repo
+from app.db.repositories import webhook_events as webhook_events_repo
 from app.integrations.zoom.webhook import ZoomWebhookError, body_sha256, sanitize_headers
 
 logger = get_logger(__name__)
 
 
 class ZoomWebhookService:
-    def __init__(self, db: Session) -> None:
+    def __init__(
+        self,
+        db: Session,
+        *,
+        config: Settings = settings,
+    ) -> None:
         self.db = db
+        self.config = config
 
-    def handle_event(self, *, payload: dict[str, Any], headers: dict[str, str], raw_body: bytes) -> dict[str, Any]:
+    def handle_event(
+        self, *, payload: dict[str, Any], headers: dict[str, str], raw_body: bytes
+    ) -> dict[str, Any]:
         event_type = payload.get("event")
         if not event_type:
             raise ZoomWebhookError("Zoom webhook payload is missing event")
 
         request_hash = body_sha256(raw_body)
         zoom_event_id = self._event_identifier(headers, payload)
-        existing_event = webhook_events.get_existing_event(self.db, zoom_event_id, request_hash)
+
+        existing_event = webhook_events_repo.get_existing_event_for_update(
+            self.db, zoom_event_id, request_hash
+        )
         if existing_event:
             logger.info(
                 "zoom_webhook.duplicate_ignored",
                 extra={"event_type": event_type, "event_id": str(existing_event.id)},
             )
-            return {"status": "duplicate", "event_id": str(existing_event.id)}
+            return _duplicate_response(existing_event)
 
-        event = webhook_events.create_event(
+        event = webhook_events_repo.create_event(
             self.db,
             event_type=event_type,
             zoom_event_id=zoom_event_id,
@@ -39,40 +57,53 @@ class ZoomWebhookService:
         )
 
         if event_type != "recording.completed":
-            webhook_events.mark_processed(self.db, event, status="ignored")
+            webhook_events_repo.mark_processed(self.db, event, status="ignored")
             logger.info("zoom_webhook.ignored_event", extra={"event_type": event_type})
             return {"status": "ignored", "event": event_type, "event_id": str(event.id)}
 
         try:
-            meeting, transcript_count = self._handle_recording_completed(payload)
-            webhook_events.mark_processed(self.db, event, meeting_id=meeting.id)
+            webhook_events_repo.mark_processing(self.db, event)
+            self.db.flush()
+            result = self._handle_recording_completed(payload, webhook_event_id=event.id)
+            webhook_events_repo.mark_processed(
+                self.db, event, meeting_id=result["meeting_id"]
+            )
+            self.db.commit()
         except Exception as exc:
-            webhook_events.mark_failed(self.db, event, str(exc))
+            self.db.rollback()
+            event_after = webhook_events_repo.get_by_id(self.db, event.id)
+            if event_after is not None:
+                webhook_events_repo.mark_failed(self.db, event_after, str(exc))
+                self.db.commit()
             raise
 
         logger.info(
             "zoom_webhook.recording_completed_processed",
             extra={
                 "event_id": str(event.id),
-                "meeting_id": str(meeting.id),
-                "transcript_count": transcript_count,
+                "meeting_id": str(result["meeting_id"]),
+                "transcripts_enqueued": result["transcripts_enqueued"],
+                "transcripts_skipped": result["transcripts_skipped"],
             },
         )
         return {
             "status": "processed",
             "event": event_type,
             "event_id": str(event.id),
-            "meeting_id": str(meeting.id),
-            "transcript_metadata_records": transcript_count,
+            "meeting_id": str(result["meeting_id"]),
+            "transcripts_enqueued": result["transcripts_enqueued"],
+            "transcripts_skipped": result["transcripts_skipped"],
         }
 
-    def _handle_recording_completed(self, payload: dict[str, Any]):
+    def _handle_recording_completed(
+        self, payload: dict[str, Any], *, webhook_event_id: uuid.UUID
+    ) -> dict[str, Any]:
         event_payload = payload.get("payload") or {}
         meeting_object = event_payload.get("object") or {}
         if not meeting_object:
             raise ZoomWebhookError("recording.completed payload is missing object")
 
-        meeting = meetings.upsert_zoom_meeting(
+        meeting = meeting_repo.upsert_zoom_meeting(
             self.db,
             {
                 "source": "zoom",
@@ -89,14 +120,20 @@ class ZoomWebhookService:
                 "metadata_json": meeting_object,
             },
         )
+        self.db.flush()
 
         transcript_files = [
             file
             for file in meeting_object.get("recording_files", []) or []
             if _looks_like_transcript(file)
         ]
+
+        transcripts_enqueued = 0
+        transcripts_skipped = 0
+        run_ids: list[str] = []
+
         for file in transcript_files:
-            transcripts.upsert_transcript_metadata(
+            transcript = transcript_repo.upsert_transcript_metadata(
                 self.db,
                 {
                     "meeting_id": meeting.id,
@@ -115,8 +152,59 @@ class ZoomWebhookService:
                     "metadata_json": file,
                 },
             )
+            self.db.flush()
 
-        return meeting, len(transcript_files)
+            if transcript.status == "completed":
+                logger.info(
+                    "zoom_webhook.transcript_already_completed",
+                    extra={"transcript_id": str(transcript.id)},
+                )
+                transcripts_skipped += 1
+                continue
+
+            existing_run = self.db.scalar(
+                _active_run_for_transcript(transcript.id)
+            )
+            if existing_run is not None:
+                logger.info(
+                    "zoom_webhook.transcript_has_active_run",
+                    extra={
+                        "transcript_id": str(transcript.id),
+                        "run_id": str(existing_run.id),
+                        "run_status": existing_run.status,
+                    },
+                )
+                transcripts_skipped += 1
+                continue
+
+            run = run_repo.create_run(
+                self.db,
+                transcript_id=transcript.id,
+                meeting_id=meeting.id,
+                webhook_event_id=webhook_event_id,
+                priority=5,
+                max_retries=self.config.job_queue_max_retries,
+            )
+            run_repo.mark_queued(self.db, run)
+            self.db.flush()
+
+            transcripts_enqueued += 1
+            run_ids.append(str(run.id))
+            logger.info(
+                "zoom_webhook.transcript_enqueued",
+                extra={
+                    "transcript_id": str(transcript.id),
+                    "run_id": str(run.id),
+                    "webhook_event_id": str(webhook_event_id),
+                },
+            )
+
+        return {
+            "meeting_id": meeting.id,
+            "transcripts_enqueued": transcripts_enqueued,
+            "transcripts_skipped": transcripts_skipped,
+            "run_ids": run_ids,
+        }
 
     @staticmethod
     def _event_identifier(headers: dict[str, str], payload: dict[str, Any]) -> str | None:
@@ -131,11 +219,40 @@ class ZoomWebhookService:
         return None
 
 
+def _duplicate_response(event) -> dict[str, Any]:
+    return {
+        "status": "duplicate",
+        "event_id": str(event.id),
+        "event_type": event.event_type,
+        "event_status": event.status,
+        "meeting_id": str(event.meeting_id) if event.meeting_id else None,
+    }
+
+
+def _active_run_for_transcript(transcript_id: uuid.UUID):
+    from sqlalchemy import select
+    from app.db.models.processing_run import ProcessingRun
+
+    active_statuses = {"pending", "queued", "running", "retrying"}
+    return (
+        select(ProcessingRun.id, ProcessingRun.status)
+        .where(
+            ProcessingRun.transcript_id == transcript_id,
+            ProcessingRun.status.in_(active_statuses),
+        )
+        .limit(1)
+    )
+
+
 def _looks_like_transcript(file: dict[str, Any]) -> bool:
     file_type = str(file.get("file_type") or "").upper()
     extension = str(file.get("file_extension") or "").upper()
     recording_type = str(file.get("recording_type") or "").lower()
-    return file_type in {"TRANSCRIPT", "CC", "VTT"} or extension in {"VTT", "JSON"} or "transcript" in recording_type
+    return (
+        file_type in {"TRANSCRIPT", "CC", "VTT"}
+        or extension in {"VTT", "JSON"}
+        or "transcript" in recording_type
+    )
 
 
 def _source_format(file: dict[str, Any]) -> str | None:

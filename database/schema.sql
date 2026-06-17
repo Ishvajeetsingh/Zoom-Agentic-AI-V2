@@ -75,3 +75,48 @@ CREATE TABLE IF NOT EXISTS transcript_segments (
     created_at timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT uq_transcript_segments_sequence UNIQUE (transcript_id, sequence_number)
 );
+
+CREATE TABLE IF NOT EXISTS processing_runs (
+    id uuid PRIMARY KEY,
+    transcript_id uuid NOT NULL REFERENCES transcripts(id) ON DELETE CASCADE,
+    meeting_id uuid REFERENCES meetings(id) ON DELETE SET NULL,
+    webhook_event_id uuid REFERENCES webhook_events(id) ON DELETE SET NULL,
+    status varchar(50) NOT NULL DEFAULT 'pending',
+    current_step varchar(50),
+    steps_completed bigint NOT NULL DEFAULT 0,
+    total_steps bigint NOT NULL DEFAULT 5,
+    step_results jsonb NOT NULL DEFAULT '[]',
+    error_message text,
+    started_at timestamptz,
+    completed_at timestamptz,
+    total_duration_seconds float,
+    questions_generated bigint NOT NULL DEFAULT 0,
+    model_used varchar(100),
+    priority integer NOT NULL DEFAULT 0,
+    retry_count integer NOT NULL DEFAULT 0,
+    max_retries integer NOT NULL DEFAULT 3,
+    next_retry_at timestamptz,
+    locked_by varchar(100),
+    locked_at timestamptz,
+    queued_at timestamptz,
+    picked_at timestamptz,
+    cancelled_at timestamptz,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS processing_failures (
+    id uuid PRIMARY KEY,
+    run_id uuid NOT NULL REFERENCES processing_runs(id) ON DELETE CASCADE,
+    step varchar(50) NOT NULL,
+    error_type varchar(100),
+    error_message text NOT NULL,
+    stack_trace text,
+    retry_eligible boolean NOT NULL DEFAULT true,
+    retry_number integer NOT NULL DEFAULT 0,
+    occurred_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS ix_processing_runs_webhook_event_id ON processing_runs(webhook_event_id);
+CREATE INDEX IF NOT EXISTS ix_processing_failures_run_id ON processing_failures(run_id);
+CREATE INDEX IF NOT EXISTS ix_processing_failures_step ON processing_failures(step);

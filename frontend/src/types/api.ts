@@ -13,8 +13,14 @@ export type TranscriptStatus =
   | "chunking_started"
   | "chunked"
   | "chunking_failed"
+  | "assessing"
   | "generating"
+  | "generating_learning_outputs"
+  | "learning_generation_failed"
+  | "synthesizing"
+  | "synthesis_failed"
   | "completed"
+  | "completed_with_warnings"
   | "generation_failed"
   | "failed";
 
@@ -69,6 +75,7 @@ export interface TranscriptListItem {
   segment_count: number | null;
   chunk_count: number | null;
   question_count: number | null;
+  warnings: string[];
   created_at: string;
   updated_at: string;
 }
@@ -97,6 +104,7 @@ export interface TranscriptDetail {
   question_count: number;
   generation_model: string | null;
   checksum_sha256: string | null;
+  warnings: string[];
   created_at: string;
   updated_at: string;
 }
@@ -144,6 +152,42 @@ export interface TranscriptUploadResponse {
   status: string;
 }
 
+export interface DiscoveredMeeting {
+  meeting_id: string;
+  uuid: string;
+  topic: string | null;
+  start_time: string | null;
+  duration_minutes: number | null;
+  participant_count: number | null;
+  has_transcript: boolean;
+  recording_count: number;
+}
+
+export interface DiscoverMeetingsResponse {
+  meetings: DiscoveredMeeting[];
+  total: number;
+}
+
+export interface DiscoverTranscriptsResponse {
+  meeting_id: string;
+  transcripts_found: boolean;
+  transcript_ids: string[];
+  recording_files: { id: string; file_type: string; file_extension: string }[];
+}
+
+export interface OrchestrateResponse {
+  run_id: string;
+  transcript_id: string;
+  meeting_id: string | null;
+  status: string;
+  steps_completed: number;
+  total_steps: number;
+  questions_generated: number;
+  model_used: string | null;
+  error_message: string | null;
+  total_duration_seconds: number | null;
+}
+
 export interface PipelineStepResult {
   step: string;
   status: string;
@@ -154,4 +198,97 @@ export interface PipelineResponse {
   transcript_id: string;
   status: string;
   steps: PipelineStepResult[];
+  errors: string[];
 }
+
+export interface ZoomAccount {
+  id: string;
+  account_name: string;
+  zoom_account_id: string;
+  client_id: string;
+  enabled: boolean;
+  is_default: boolean;
+  token_url: string;
+  api_base_url: string;
+  notes: string | null;
+  last_sync_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ZoomAccountListResponse {
+  items: ZoomAccount[];
+  total: number;
+}
+
+export interface ZoomAccountCreateRequest {
+  account_name: string;
+  zoom_account_id: string;
+  client_id: string;
+  client_secret: string;
+  enabled?: boolean;
+  is_default?: boolean;
+  token_url?: string;
+  api_base_url?: string;
+  notes?: string;
+}
+
+export interface ZoomAccountUpdateRequest {
+  account_name?: string;
+  zoom_account_id?: string;
+  client_id?: string;
+  client_secret?: string;
+  enabled?: boolean;
+  is_default?: boolean;
+  token_url?: string;
+  api_base_url?: string;
+  notes?: string;
+}
+
+export interface SyncConfig {
+  id: string;
+  zoom_account_id: string;
+  auto_sync_enabled: boolean;
+  sync_interval_minutes: number;
+  lookback_days: number;
+  auto_process: boolean;
+  last_sync_at: string | null;
+  last_sync_status: string | null;
+  last_sync_error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SyncConfigUpdateRequest {
+  auto_sync_enabled?: boolean;
+  sync_interval_minutes?: number;
+  lookback_days?: number;
+  auto_process?: boolean;
+}
+
+export interface SyncHistoryEntry {
+  id: string;
+  zoom_account_id: string;
+  sync_type: string;
+  status: string;
+  meetings_discovered: number;
+  transcripts_discovered: number;
+  transcripts_queued: number;
+  error_message: string | null;
+  started_at: string;
+  completed_at: string | null;
+  duration_seconds: number | null;
+}
+
+export interface SyncHistoryListResponse {
+  items: SyncHistoryEntry[];
+  total: number;
+}
+
+export interface SyncNowResponse {
+  success: boolean;
+  message: string;
+  sync_history_id: string | null;
+}
+
+

@@ -4,7 +4,7 @@ import { AppShell } from "../components/layout/AppShell";
 import { ProcessingTimeline, type TimelineStep } from "../components/common/ProcessingTimeline";
 import { CompletionCard } from "../components/common/CompletionCard";
 import { uploadTranscript, runPipeline } from "../api/transcripts";
-import type { TranscriptUploadResponse } from "../types/api";
+import type { TranscriptUploadResponse, PipelineResponse } from "../types/api";
 
 type Phase = "form" | "uploading" | "pipeline" | "done" | "error";
 
@@ -13,6 +13,8 @@ const PIPELINE_STEPS: TimelineStep[] = [
   { key: "clean", label: "Clean Transcript", description: "Normalize speakers, remove fillers and artifacts", status: "waiting" },
   { key: "chunk", label: "Semantic Chunking", description: "Split transcript into topic-coherent chunks", status: "waiting" },
   { key: "generate", label: "Generate Questions", description: "Create quiz questions using LLM", status: "waiting" },
+  { key: "generate_learning_outputs", label: "Generate Learning Outputs", description: "Extract key concepts and learning objectives", status: "waiting" },
+  { key: "synthesize", label: "Synthesize Insights", description: "Prouce insights and summary from processed data", status: "waiting" },
 ];
 
 function setStep(steps: TimelineStep[], key: string, status: TimelineStep["status"], desc?: string): TimelineStep[] {
@@ -80,42 +82,74 @@ export function UploadTranscriptPage() {
   };
 
   const runPipelineSteps = async (transcriptId: string) => {
-    let steps = PIPELINE_STEPS.map((s) => ({ ...s }));
-    const stepKeys = ["parse", "clean", "chunk", "generate"];
+    const stepKeys = ["parse", "clean", "chunk", "generate", "generate_learning_outputs", "synthesize"];
     const stepLabels: Record<string, string> = {
       parse: "Extracting speaker segments...",
       clean: "Normalizing and cleaning...",
       chunk: "Building semantic chunks...",
       generate: "Running LLM question generation...",
+      generate_learning_outputs: "Generating learning outputs...",
+      synthesize: "Synthesizing insights...",
     };
 
-    try {
-      for (const key of stepKeys) {
-        steps = setStep(steps, key, "running", stepLabels[key]);
-        setPipelineSteps([...steps]);
+    let steps = PIPELINE_STEPS.map((s) => ({ ...s }));
+    let currentIdx = 0;
 
-        const res = await fetch(
-          `${import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000/api/v1"}/transcripts/${transcriptId}/${key}`,
-          { method: "POST", headers: { "Content-Type": "application/json" } }
-        );
+    steps = setStep(steps, stepKeys[0], "running", stepLabels[stepKeys[0]]);
+    setPipelineSteps([...steps]);
 
-        if (!res.ok) {
-          const detail = await res.text().catch(() => "");
-          throw new Error(detail || `Step ${key} failed: ${res.status}`);
-        }
-
-        steps = markPreviousCompleted(setStep(steps, key, "completed"), key);
+    const advanceInterval = setInterval(() => {
+      if (currentIdx < stepKeys.length - 1) {
+        steps = markPreviousCompleted(steps, stepKeys[currentIdx]);
+        steps = setStep(steps, stepKeys[currentIdx], "completed");
+        currentIdx++;
+        steps = setStep(steps, stepKeys[currentIdx], "running", stepLabels[stepKeys[currentIdx]]);
         setPipelineSteps([...steps]);
       }
+    }, 2000);
 
-      setPhase("done");
-      setCompletionStats([
-        { label: "Transcript ID", value: transcriptId },
-        { label: "Meeting ID", value: uploadResult?.meeting_id ?? "" },
-        { label: "File", value: uploadResult?.transcript_filename ?? file?.name ?? "" },
-        { label: "Size", value: uploadResult?.file_size_bytes ? formatFileSize(uploadResult.file_size_bytes) : (file ? formatFileSize(file.size) : "N/A") },
-      ]);
+    try {
+      const result: PipelineResponse = await runPipeline(transcriptId);
+
+      clearInterval(advanceInterval);
+
+      const completedKeys = new Set(
+        result.steps.filter((s) => s.status === "completed").map((s) => s.step)
+      );
+      const failedStep = result.steps.find((s) => s.status === "failed");
+
+      steps = PIPELINE_STEPS.map((s) => ({
+        ...s,
+        status: completedKeys.has(s.key)
+          ? ("completed" as const)
+          : s.key === failedStep?.step
+            ? ("failed" as const)
+            : s.status === "running"
+              ? s.status
+              : ("waiting" as const),
+      }));
+
+      setPipelineSteps([...steps]);
+
+      if (failedStep) {
+        const errMsg = result.errors.length ? result.errors.join("; ") : `Step ${failedStep.step} failed`;
+        setErrorMsg(errMsg);
+        setPhase("error");
+      } else {
+        for (const key of stepKeys) {
+          steps = setStep(steps, key, "completed");
+        }
+        setPipelineSteps([...steps]);
+        setPhase("done");
+        setCompletionStats([
+          { label: "Transcript ID", value: transcriptId },
+          { label: "Meeting ID", value: uploadResult?.meeting_id ?? "" },
+          { label: "File", value: uploadResult?.transcript_filename ?? file?.name ?? "" },
+          { label: "Size", value: uploadResult?.file_size_bytes ? formatFileSize(uploadResult.file_size_bytes) : (file ? formatFileSize(file.size) : "N/A") },
+        ]);
+      }
     } catch (err) {
+      clearInterval(advanceInterval);
       const msg = err instanceof Error ? err.message : "Pipeline failed";
       const failedStep = steps.find((s) => s.status === "running");
       if (failedStep) {

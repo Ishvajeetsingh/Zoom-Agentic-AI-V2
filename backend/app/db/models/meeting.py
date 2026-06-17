@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Integer, String, Text, func
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -24,6 +24,9 @@ class Meeting(Base):
     duration_minutes: Mapped[int | None] = mapped_column(Integer)
     participant_count: Mapped[int | None] = mapped_column(Integer)
     metadata_json: Mapped[dict] = mapped_column("metadata", JSONB, nullable=False, default=dict)
+    zoom_account_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("zoom_accounts.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -33,3 +36,4 @@ class Meeting(Base):
 
     transcripts = relationship("Transcript", back_populates="meeting")
     webhook_events = relationship("WebhookEvent", back_populates="meeting")
+    zoom_account = relationship("ZoomAccount")

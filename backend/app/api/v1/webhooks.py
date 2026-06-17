@@ -1,6 +1,7 @@
 import json
+import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -11,6 +12,12 @@ from app.integrations.zoom.webhook import (
     ZoomWebhookError,
     build_url_validation_response,
     verify_zoom_webhook_request,
+)
+from app.schemas.webhook_events import (
+    WebhookEventDetailOut,
+    WebhookEventListItem,
+    WebhookEventListOut,
+    WebhookEventStatusCounts,
 )
 from app.services.zoom_webhook_service import ZoomWebhookService
 
@@ -51,7 +58,6 @@ async def receive_zoom_webhook(request: Request, db: Session = Depends(get_db)) 
     service = ZoomWebhookService(db)
     try:
         result = service.handle_event(payload=payload, headers=dict(request.headers), raw_body=raw_body)
-        db.commit()
         return result
     except SQLAlchemyError as exc:
         db.rollback()
@@ -64,3 +70,58 @@ async def receive_zoom_webhook(request: Request, db: Session = Depends(get_db)) 
         db.rollback()
         logger.warning("zoom_webhook.processing_error", extra={"reason": str(exc)})
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.get("/events", response_model=WebhookEventListOut)
+def list_webhook_events(
+    event_type: str | None = Query(None),
+    event_status: str | None = Query(None, alias="status"),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
+    order: str = Query("desc", pattern="^(asc|desc)$"),
+    db: Session = Depends(get_db),
+) -> WebhookEventListOut:
+    from app.db.repositories import webhook_events as webhook_events_repo
+
+    rows, total = webhook_events_repo.list_events(
+        db,
+        event_type=event_type,
+        status=event_status,
+        offset=offset,
+        limit=limit,
+        order_desc=(order == "desc"),
+    )
+    items = [WebhookEventListItem.model_validate(r) for r in rows]
+    return WebhookEventListOut(items=items, total=total, offset=offset, limit=limit)
+
+
+@router.get("/events/status-counts", response_model=WebhookEventStatusCounts)
+def get_webhook_event_status_counts(
+    db: Session = Depends(get_db),
+) -> WebhookEventStatusCounts:
+    from app.db.repositories import webhook_events as webhook_events_repo
+
+    counts = webhook_events_repo.count_by_status(db)
+    return WebhookEventStatusCounts(status_counts=counts)
+
+
+@router.get("/events/{event_id}", response_model=WebhookEventDetailOut)
+def get_webhook_event(
+    event_id: uuid.UUID,
+    db: Session = Depends(get_db),
+) -> WebhookEventDetailOut:
+    from app.db.models.processing_run import ProcessingRun
+    from app.db.repositories import webhook_events as webhook_events_repo
+    from sqlalchemy import select
+
+    event = webhook_events_repo.get_by_id(db, event_id)
+    if event is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Webhook event not found")
+
+    run_ids = db.scalars(
+        select(ProcessingRun.id).where(ProcessingRun.webhook_event_id == event_id)
+    ).all()
+
+    detail = WebhookEventDetailOut.model_validate(event)
+    detail.processing_run_ids = list(run_ids)
+    return detail

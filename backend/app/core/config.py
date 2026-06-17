@@ -42,9 +42,24 @@ class Settings(BaseSettings):
 
     question_min_count: int = 10
     question_max_count: int = 20
-    max_chunk_tokens: int = 1800
+    max_chunk_tokens: int = 4096
     dedup_similarity_threshold: float = 0.85
     workflow_max_retries: int = 1
+
+    output_flashcards_per_chunk: int = 5
+    output_short_questions_per_chunk: int = 3
+    synthesize_max_input_tokens: int = 12000
+    synthesize_max_output_tokens: int = 2000
+
+    job_queue_num_workers: int = 2
+    job_queue_poll_interval_seconds: float = 5.0
+    job_queue_max_retries: int = 3
+    job_queue_retry_backoff_base_seconds: float = 2.0
+    job_queue_retry_backoff_max_seconds: float = 300.0
+    job_queue_max_concurrent_runs: int = 4
+
+    sync_scheduler_enabled: bool = True
+    sync_scheduler_poll_interval_seconds: float = 60.0
 
     model_config = SettingsConfigDict(
         env_file=".env",

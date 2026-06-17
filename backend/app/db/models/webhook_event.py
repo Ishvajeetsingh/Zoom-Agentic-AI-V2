@@ -28,3 +28,4 @@ class WebhookEvent(Base):
     error_message: Mapped[str | None] = mapped_column(Text)
 
     meeting = relationship("Meeting", back_populates="webhook_events")
+    processing_runs = relationship("ProcessingRun", back_populates="webhook_event")

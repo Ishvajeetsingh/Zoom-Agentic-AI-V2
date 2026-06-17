@@ -6,7 +6,7 @@ import { LoadingState } from "../../components/common/LoadingState";
 import { getProcessingRuns } from "../../api/processingRuns";
 import { getTranscripts } from "../../api/transcripts";
 import type { TranscriptListItem } from "../../types/api";
-import { CheckCircle, XCircle, Loader2, Clock } from "lucide-react";
+import { CheckCircle, XCircle, Loader2, Clock, AlertTriangle } from "lucide-react";
 
 const STATUS_LABELS: Record<string, string> = {
   metadata_received: "Received",
@@ -21,23 +21,31 @@ const STATUS_LABELS: Record<string, string> = {
   chunking_started: "Chunking",
   chunked: "Chunked",
   chunking_failed: "Chunk Failed",
+  assessing: "Assessing",
   generating: "Generating",
   completed: "Completed",
+  completed_with_warnings: "Completed (Warnings)",
   generation_failed: "Generation Failed",
+  generating_learning_outputs: "Generating Learning",
+  learning_generation_failed: "Learning Generation Failed",
+  synthesizing: "Synthesizing",
+  synthesis_failed: "Synthesis Failed",
   failed: "Failed",
 };
 
 function statusClass(status: string): string {
   if (status === "completed") return "status-completed";
+  if (status === "completed_with_warnings") return "status-warning";
   if (status.endsWith("_failed") || status === "failed") return "status-failed";
-  if (status.includes("_started") || status === "generating") return "status-in-progress";
+  if (status.includes("_started") || status === "generating" || status === "assessing" || status === "generating_learning_outputs" || status === "synthesizing") return "status-in-progress";
   return "status-pending";
 }
 
 function statusIcon(status: string) {
   if (status === "completed") return <CheckCircle size={14} />;
+  if (status === "completed_with_warnings") return <AlertTriangle size={14} />;
   if (status.endsWith("_failed") || status === "failed") return <XCircle size={14} />;
-  if (status.includes("_started") || status === "generating") return <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} />;
+  if (status.includes("_started") || status === "generating" || status === "assessing" || status === "generating_learning_outputs" || status === "synthesizing") return <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} />;
   return <Clock size={14} />;
 }
 
@@ -76,8 +84,9 @@ export function RunTimeline() {
   if (transcripts.length === 0) return <AppShell><EmptyState message="No processing runs yet." title="No Runs" /></AppShell>;
 
   const completed = transcripts.filter((t) => t.status === "completed").length;
+  const completedWithWarnings = transcripts.filter((t) => t.status === "completed_with_warnings").length;
   const failed = transcripts.filter((t) => t.status.endsWith("_failed") || t.status === "failed").length;
-  const inProgress = transcripts.filter((t) => t.status.includes("_started") || t.status === "generating").length;
+  const inProgress = transcripts.filter((t) => t.status.includes("_started") || t.status === "generating" || t.status === "assessing" || t.status === "generating_learning_outputs" || t.status === "synthesizing").length;
 
   return (
     <AppShell>
@@ -103,6 +112,15 @@ export function RunTimeline() {
           <div className="metric-body">
             <span className="metric-value">{completed}</span>
             <span className="metric-label">Completed</span>
+          </div>
+        </div>
+        <div className="metric-card">
+          <div className="metric-icon-wrap metric-icon-warning">
+            <AlertTriangle size={22} />
+          </div>
+          <div className="metric-body">
+            <span className="metric-value">{completedWithWarnings}</span>
+            <span className="metric-label">With Warnings</span>
           </div>
         </div>
         <div className="metric-card">
@@ -152,6 +170,12 @@ export function RunTimeline() {
                   Chunks: {t.chunk_count ?? 0}
                 </span>
               </div>
+              {t.warnings && t.warnings.length > 0 && (
+                <div className="run-card-warnings">
+                  <AlertTriangle size={12} />
+                  <span>{t.warnings.length} warning{t.warnings.length > 1 ? "s" : ""}</span>
+                </div>
+              )}
             </div>
           </a>
         ))}

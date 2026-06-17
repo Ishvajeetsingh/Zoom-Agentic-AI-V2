@@ -78,10 +78,30 @@ class ZoomApiClient:
         return response.json()
 
     def get_recording_metadata(self, meeting_uuid: str) -> dict:
-        # Zoom Meeting UUIDs are base64-encoded and may contain +, /, = which
-        # must be percent-encoded in the URL path or Zoom returns 404.
-        encoded_uuid = quote(meeting_uuid, safe="")
+        encoded_uuid = quote(quote(meeting_uuid, safe=""), safe="")
         return self.get(f"/meetings/{encoded_uuid}/recordings")
+
+    def list_user_recordings(
+        self,
+        *,
+        user_id: str = "me",
+        from_date: str | None = None,
+        to_date: str | None = None,
+        page_size: int = 300,
+        next_page_token: str | None = None,
+    ) -> dict:
+        params: dict[str, object] = {"page_size": min(page_size, 300)}
+        if from_date:
+            params["from"] = from_date
+        if to_date:
+            params["to"] = to_date
+        if next_page_token:
+            params["next_page_token"] = next_page_token
+        return self.get(f"/users/{user_id}/recordings", params=params)
+
+    def get_meeting_recordings(self, meeting_id: str) -> dict:
+        encoded_id = quote(quote(meeting_id, safe=""), safe="")
+        return self.get(f"/meetings/{encoded_id}/recordings")
 
     def stream_download(self, url: str, *, force_refresh_token: bool = False) -> ZoomDownloadResponse:
         token = self.oauth_client.get_access_token(force_refresh=force_refresh_token)

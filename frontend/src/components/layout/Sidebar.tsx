@@ -1,5 +1,18 @@
 import { useEffect, useState } from "react";
-import { LayoutDashboard, FileText, HelpCircle, Activity, Cpu, Video, Upload, Zap } from "lucide-react";
+import {
+  LayoutDashboard,
+  Video,
+  Activity,
+  Webhook,
+  Lightbulb,
+  BookOpen,
+  Settings,
+  Upload,
+  Zap,
+  Cpu,
+  Users,
+  RefreshCw,
+} from "lucide-react";
 
 interface NavItem {
   label: string;
@@ -10,15 +23,26 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { label: "Dashboard", href: "#/", icon: <LayoutDashboard size={20} /> },
   { label: "Meetings", href: "#/meetings", icon: <Video size={20} /> },
-  { label: "Transcripts", href: "#/transcripts", icon: <FileText size={20} /> },
-  { label: "Questions", href: "#/questions", icon: <HelpCircle size={20} /> },
-  { label: "Runs", href: "#/runs", icon: <Activity size={20} /> },
+  { label: "Queue", href: "#/queue", icon: <Activity size={20} /> },
+  { label: "Webhooks", href: "#/webhooks", icon: <Webhook size={20} /> },
+  { label: "Insights", href: "#/insights", icon: <Lightbulb size={20} /> },
+  { label: "Learning Outputs", href: "#/learning", icon: <BookOpen size={20} /> },
+  { label: "Zoom Accounts", href: "#/zoom-accounts", icon: <Users size={20} /> },
+  { label: "Auto Sync", href: "#/sync", icon: <RefreshCw size={20} /> },
+  { label: "Settings", href: "#/settings", icon: <Settings size={20} /> },
 ];
 
 const ACTION_ITEMS: NavItem[] = [
   { label: "Process Meeting", href: "#/process-meeting", icon: <Zap size={20} /> },
   { label: "Upload Transcript", href: "#/upload-transcript", icon: <Upload size={20} /> },
 ];
+
+function isActiveLink(currentHash: string, href: string): boolean {
+  if (href === "#/") {
+    return currentHash === "#/" || currentHash === "#" || currentHash === "";
+  }
+  return currentHash.startsWith(href);
+}
 
 export function Sidebar() {
   const [currentHash, setCurrentHash] = useState(window.location.hash || "#/");
@@ -60,7 +84,7 @@ export function Sidebar() {
           <a
             key={item.href}
             href={item.href}
-            className={`sidebar-link ${currentHash === item.href ? "active" : ""}`}
+            className={`sidebar-link ${isActiveLink(currentHash, item.href) ? "active" : ""}`}
             onClick={() => handleClick(item.href)}
           >
             <span className="sidebar-link-icon">{item.icon}</span>
@@ -68,7 +92,9 @@ export function Sidebar() {
           </a>
         ))}
       </nav>
-      <div className="sidebar-section-label" style={{ marginTop: 28 }}>Actions</div>
+      <div className="sidebar-section-label" style={{ marginTop: 28 }}>
+        Actions
+      </div>
       <nav className="sidebar-nav">
         {ACTION_ITEMS.map((item) => (
           <a

@@ -72,3 +72,15 @@ class Transcript(Base):
         cascade="all, delete-orphan",
         order_by="Question.created_at",
     )
+    meeting_insights = relationship(
+        "MeetingInsights",
+        back_populates="transcript",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
+    learning_outputs = relationship(
+        "LearningOutput",
+        back_populates="transcript",
+        cascade="all, delete-orphan",
+        order_by="LearningOutput.created_at",
+    )

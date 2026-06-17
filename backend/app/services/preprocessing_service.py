@@ -43,7 +43,10 @@ class WorkflowResult:
     total_prompt_tokens: int | None = None
     total_completion_tokens: int | None = None
     total_duration_seconds: float | None = None
+    learning_outputs_persisted: int = 0
+    insights_persisted: bool = False
     error: str | None = None
+    warnings: tuple[str, ...] = ()
 
 
 class PreprocessingService:
@@ -100,17 +103,39 @@ class PreprocessingService:
                 meeting_id=transcript.meeting_id,
             )
 
-            if final_state.get("status") == WorkflowStatus.FAILED:
+            workflow_status = final_state.get("status")
+            warnings = final_state.get("warnings", [])
+
+            if workflow_status == WorkflowStatus.FAILED:
                 workflow_error_msg = final_state.get("error") or "Workflow ended in failure state without error message"
                 raise WorkflowError(workflow_error_msg)
 
-            transcript_repo.mark_generation_completed(
-                self.db,
-                transcript,
-                question_count=final_state.get("questions_persisted", 0),
-                generation_model=final_state.get("model_used") or self.config.ollama_primary_model,
-            )
-            self.db.commit()
+            if workflow_status == WorkflowStatus.COMPLETED_WITH_WARNINGS:
+                transcript_repo.mark_generation_completed(
+                    self.db,
+                    transcript,
+                    question_count=final_state.get("questions_persisted", 0),
+                    generation_model=final_state.get("model_used") or self.config.ollama_primary_model,
+                )
+                self.db.commit()
+
+                logger.info(
+                    "workflow_service.completed_with_warnings",
+                    extra={
+                        "transcript_id": str(transcript_id),
+                        "total_questions": final_state.get("total_questions", 0),
+                        "warning_count": len(warnings),
+                        "warnings": warnings,
+                    },
+                )
+            else:
+                transcript_repo.mark_generation_completed(
+                    self.db,
+                    transcript,
+                    question_count=final_state.get("questions_persisted", 0),
+                    generation_model=final_state.get("model_used") or self.config.ollama_primary_model,
+                )
+                self.db.commit()
 
         except WorkflowError as exc:
             workflow_error_msg = str(exc)
@@ -145,10 +170,14 @@ class PreprocessingService:
             },
         )
 
+        final_status = transcript.status
+        if final_state.get("status") == WorkflowStatus.COMPLETED_WITH_WARNINGS:
+            final_status = "completed_with_warnings"
+
         return WorkflowResult(
             transcript_id=transcript.id,
             meeting_id=transcript.meeting_id,
-            status=transcript.status,
+            status=final_status,
             total_questions=final_state.get("total_questions", 0),
             questions_persisted=final_state.get("questions_persisted", 0),
             chunks_loaded=final_state.get("chunks_loaded", 0),
@@ -159,4 +188,7 @@ class PreprocessingService:
             total_prompt_tokens=final_state.get("total_prompt_tokens"),
             total_completion_tokens=final_state.get("total_completion_tokens"),
             total_duration_seconds=final_state.get("total_duration_seconds"),
+            learning_outputs_persisted=final_state.get("learning_outputs_persisted", 0),
+            insights_persisted=final_state.get("insights_persisted", False),
+            warnings=final_state.get("warnings", []),
         )

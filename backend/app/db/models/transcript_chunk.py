@@ -39,3 +39,4 @@ class TranscriptChunk(Base):
 
     transcript = relationship("Transcript", back_populates="chunks")
     questions = relationship("Question", back_populates="chunk", cascade="all, delete-orphan")
+    learning_outputs = relationship("LearningOutput", back_populates="chunk", cascade="all, delete-orphan")

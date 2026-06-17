@@ -89,16 +89,18 @@ class QuestionService:
         self.config = config
         self.ollama = ollama_client or OllamaApiClient(config=config)
 
-    _MIN_QUESTIONS_PER_CHUNK = 3
-    _MAX_QUESTIONS_PER_CHUNK = 10
+    _MIN_QUESTIONS_PER_CHUNK = 2
+    _MAX_QUESTIONS_PER_CHUNK = 5
 
     @classmethod
     def _compute_question_count(cls, word_count: int) -> int:
         if word_count < 100:
-            return 3
+            return 2
         if word_count < 250:
-            return 5
-        return 10
+            return 3
+        if word_count < 500:
+            return 4
+        return 5
 
     def generate_questions_from_chunk(
         self,
@@ -130,64 +132,95 @@ class QuestionService:
 
         target_count = max(self._MIN_QUESTIONS_PER_CHUNK, min(target_count, self._MAX_QUESTIONS_PER_CHUNK))
 
-        prompt = (
-            f"Generate {target_count} multiple-choice questions from the following meeting transcript chunk.\n\n"
-            f"--- TRANSCRIPT CHUNK ---\n{chunk_text}\n--- END CHUNK ---\n\n"
-            f"Return a JSON array of {target_count} question objects."
-        )
+        final_questions: list[GeneratedQuestion] = []
+        final_response: GenerationResponse | None = None
 
-        logger.info(
-            "question_generation.started",
-            extra={
-                "chunk_id": str(chunk_id) if chunk_id else None,
-                "word_count": word_count,
-                "target_question_count": target_count,
-                "chunk_length": len(chunk_text),
-                "prompt_length": len(prompt),
-            },
-        )
-
-        try:
-            response = self.ollama.generate_json(
-                prompt,
-                model=model or self.config.ollama_primary_model,
-                system=MCQ_SYSTEM_PROMPT,
-                temperature=0.7,
-                max_tokens=self.config.max_chunk_tokens,
+        for attempt_target in [target_count, max(target_count - 1, 2), 2]:
+            prompt = (
+                f"Generate {attempt_target} multiple-choice questions from the following meeting transcript chunk.\n\n"
+                f"--- TRANSCRIPT CHUNK ---\n{chunk_text}\n--- END CHUNK ---\n\n"
+                f"Return a JSON array of {attempt_target} question objects."
             )
-        except (OllamaConnectionError, OllamaModelError, OllamaGenerateError) as exc:
-            logger.exception(
-                "question_generation.llm_failed",
+
+            logger.info(
+                "question_generation.started",
                 extra={
                     "chunk_id": str(chunk_id) if chunk_id else None,
-                    "error": str(exc),
+                    "word_count": word_count,
+                    "target_question_count": attempt_target,
+                    "chunk_length": len(chunk_text),
+                    "prompt_length": len(prompt),
                 },
             )
-            raise QuestionGenerationError(f"LLM generation failed: {exc}") from exc
 
-        questions = self._parse_questions(response, chunk_id)
+            try:
+                response = self.ollama.generate_json(
+                    prompt,
+                    model=model or self.config.ollama_primary_model,
+                    system=MCQ_SYSTEM_PROMPT,
+                    temperature=0.7,
+                    max_tokens=self.config.max_chunk_tokens,
+                )
+            except (OllamaConnectionError, OllamaModelError, OllamaGenerateError) as exc:
+                logger.exception(
+                    "question_generation.llm_failed",
+                    extra={
+                        "chunk_id": str(chunk_id) if chunk_id else None,
+                        "error": str(exc),
+                    },
+                )
+                raise QuestionGenerationError(f"LLM generation failed: {exc}") from exc
+
+            questions = self._parse_questions(response, chunk_id)
+
+            if questions:
+                final_questions = questions
+                final_response = response
+                break
+
+            raw = response.response.strip()
+            is_llm_error = False
+            try:
+                parsed = json.loads(raw)
+                if isinstance(parsed, dict) and "error" in parsed:
+                    is_llm_error = True
+                    logger.warning(
+                        "question_generation.llm_returned_error_retrying",
+                        extra={
+                            "chunk_id": str(chunk_id) if chunk_id else None,
+                            "error_msg": str(parsed["error"])[:200],
+                            "retrying_with_target": max(attempt_target - 1, 2) if attempt_target > 2 else None,
+                        },
+                    )
+            except json.JSONDecodeError:
+                pass
+
+            final_response = response
+
+            if not is_llm_error:
+                break
 
         logger.info(
             "question_generation.completed",
             extra={
                 "chunk_id": str(chunk_id) if chunk_id else None,
-                "questions_generated": len(questions),
-                "model_used": response.model,
-                "prompt_tokens": response.prompt_tokens,
-                "completion_tokens": response.completion_tokens,
-                "duration_seconds": response.total_duration_seconds,
+                "questions_generated": len(final_questions),
+                "model_used": final_response.model if final_response else None,
+                "prompt_tokens": final_response.prompt_tokens if final_response else None,
+                "completion_tokens": final_response.completion_tokens if final_response else None,
+                "duration_seconds": final_response.total_duration_seconds if final_response else None,
             },
         )
 
         return QuestionGenerationResult(
             transcript_id=uuid.uuid4(),
             meeting_id=uuid.uuid4(),
-            questions=questions,
-            total_questions=len(questions),
-            model_used=response.model,
-            total_prompt_tokens=response.prompt_tokens,
-            total_completion_tokens=response.completion_tokens,
-            total_duration_seconds=response.total_duration_seconds,
+            questions=final_questions,
+            total_questions=len(final_questions),
+            model_used=final_response.model if final_response else (model or self.config.ollama_primary_model),
+            total_prompt_tokens=final_response.prompt_tokens if final_response else None,
+            total_completion_tokens=final_response.completion_tokens if final_response else None,
+            total_duration_seconds=final_response.total_duration_seconds if final_response else None,
         )
 
     def _parse_questions(
