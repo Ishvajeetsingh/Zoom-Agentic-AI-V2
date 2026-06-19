@@ -16,7 +16,7 @@ VALID_RUN_STATUSES = {
 
 PIPELINE_STEPS = [
     "download", "parse", "clean", "chunk", "generate",
-    "generate_learning_outputs", "synthesize",
+    "generate_learning_outputs", "synthesize", "export_docx",
 ]
 
 RETRY_BACKOFF_BASE_SECONDS = 2.0

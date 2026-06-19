@@ -10,6 +10,11 @@ import {
   ChevronRight,
   ExternalLink,
   AlertCircle,
+  BookOpen,
+  GraduationCap,
+  Tag,
+  Gavel,
+  ThumbsUp,
 } from "lucide-react";
 import { AppShell } from "../components/layout/AppShell";
 import { LoadingState } from "../components/common/LoadingState";
@@ -41,7 +46,16 @@ import type {
 
 const PAGE_SIZE = 10;
 
-type Section = "all" | "summary" | "key_concepts" | "action_items";
+type Section =
+  | "all"
+  | "summary"
+  | "key_concepts"
+  | "action_items"
+  | "key_takeaways"
+  | "learning_outcomes"
+  | "topics"
+  | "decisions"
+  | "recommendations";
 
 interface TranscriptWithInsights {
   transcript: TranscriptListItem;
@@ -49,6 +63,11 @@ interface TranscriptWithInsights {
   summary: SummaryResponse | null;
   keyConcepts: KeyConceptItem[];
   actionItems: ActionItemItem[];
+  keyTakeaways: KeyTakeawayItem[];
+  learningOutcomes: LearningOutcomeItem[];
+  topics: TopicItem[];
+  decisions: DecisionItem[];
+  recommendations: RecommendationItem[];
 }
 
 function formatRelativeTime(dateStr: string | null): string {
@@ -122,12 +141,25 @@ export function InsightsPage() {
         for (const t of transcriptsList) {
           const meeting = meetingMap[t.meeting_id];
           if (!meeting) continue;
-          const [summaryRes, conceptsRes, actionsRes] =
-            await Promise.allSettled([
-              getSummary(t.id),
-              getKeyConcepts(t.id),
-              getActionItems(t.id),
-            ]);
+          const [
+            summaryRes,
+            conceptsRes,
+            actionsRes,
+            takeawaysRes,
+            outcomesRes,
+            topicsRes,
+            decisionsRes,
+            recsRes,
+          ] = await Promise.allSettled([
+            getSummary(t.id),
+            getKeyConcepts(t.id),
+            getActionItems(t.id),
+            getKeyTakeaways(t.id),
+            getLearningOutcomes(t.id),
+            getTopics(t.id),
+            getDecisions(t.id),
+            getRecommendations(t.id),
+          ]);
           if (cancelled) return;
 
           const hasInsights =
@@ -135,7 +167,17 @@ export function InsightsPage() {
             (conceptsRes.status === "fulfilled" &&
               conceptsRes.value.key_concepts.length > 0) ||
             (actionsRes.status === "fulfilled" &&
-              actionsRes.value.action_items.length > 0);
+              actionsRes.value.action_items.length > 0) ||
+            (takeawaysRes.status === "fulfilled" &&
+              takeawaysRes.value.key_takeaways.length > 0) ||
+            (outcomesRes.status === "fulfilled" &&
+              outcomesRes.value.learning_outcomes.length > 0) ||
+            (topicsRes.status === "fulfilled" &&
+              topicsRes.value.topics.length > 0) ||
+            (decisionsRes.status === "fulfilled" &&
+              decisionsRes.value.decisions.length > 0) ||
+            (recsRes.status === "fulfilled" &&
+              recsRes.value.recommendations.length > 0);
 
           if (hasInsights) {
             results.push({
@@ -152,6 +194,26 @@ export function InsightsPage() {
               actionItems:
                 actionsRes.status === "fulfilled"
                   ? actionsRes.value.action_items
+                  : [],
+              keyTakeaways:
+                takeawaysRes.status === "fulfilled"
+                  ? takeawaysRes.value.key_takeaways
+                  : [],
+              learningOutcomes:
+                outcomesRes.status === "fulfilled"
+                  ? outcomesRes.value.learning_outcomes
+                  : [],
+              topics:
+                topicsRes.status === "fulfilled"
+                  ? topicsRes.value.topics
+                  : [],
+              decisions:
+                decisionsRes.status === "fulfilled"
+                  ? decisionsRes.value.decisions
+                  : [],
+              recommendations:
+                recsRes.status === "fulfilled"
+                  ? recsRes.value.recommendations
                   : [],
             });
           }
@@ -186,7 +248,12 @@ export function InsightsPage() {
           d.transcript.id.toLowerCase().includes(q) ||
           (d.summary?.summary_text ?? "").toLowerCase().includes(q) ||
           d.keyConcepts.some((kc) => kc.concept.toLowerCase().includes(q)) ||
-          d.actionItems.some((ai) => ai.item_text.toLowerCase().includes(q))
+          d.actionItems.some((ai) => ai.item_text.toLowerCase().includes(q)) ||
+          d.keyTakeaways.some((kt) => kt.takeaway.toLowerCase().includes(q)) ||
+          d.learningOutcomes.some((lo) => lo.outcome.toLowerCase().includes(q)) ||
+          d.topics.some((t) => t.topic.toLowerCase().includes(q)) ||
+          d.decisions.some((dc) => dc.decision.toLowerCase().includes(q)) ||
+          d.recommendations.some((r) => r.recommendation.toLowerCase().includes(q))
       );
     }
     if (meetingFilter !== "all") {
@@ -199,6 +266,16 @@ export function InsightsPage() {
         list = list.filter((d) => d.keyConcepts.length > 0);
       if (sectionFilter === "action_items")
         list = list.filter((d) => d.actionItems.length > 0);
+      if (sectionFilter === "key_takeaways")
+        list = list.filter((d) => d.keyTakeaways.length > 0);
+      if (sectionFilter === "learning_outcomes")
+        list = list.filter((d) => d.learningOutcomes.length > 0);
+      if (sectionFilter === "topics")
+        list = list.filter((d) => d.topics.length > 0);
+      if (sectionFilter === "decisions")
+        list = list.filter((d) => d.decisions.length > 0);
+      if (sectionFilter === "recommendations")
+        list = list.filter((d) => d.recommendations.length > 0);
     }
     return list;
   }, [insightsData, search, meetingFilter, sectionFilter]);
@@ -221,6 +298,26 @@ export function InsightsPage() {
     (sum, d) => sum + d.actionItems.length,
     0
   );
+  const totalKeyTakeaways = insightsData.reduce(
+    (sum, d) => sum + d.keyTakeaways.length,
+    0
+  );
+  const totalLearningOutcomes = insightsData.reduce(
+    (sum, d) => sum + d.learningOutcomes.length,
+    0
+  );
+  const totalTopics = insightsData.reduce(
+    (sum, d) => sum + d.topics.length,
+    0
+  );
+  const totalDecisions = insightsData.reduce(
+    (sum, d) => sum + d.decisions.length,
+    0
+  );
+  const totalRecommendations = insightsData.reduce(
+    (sum, d) => sum + d.recommendations.length,
+    0
+  );
 
   const meetingsWithInsights = useMemo(() => {
     const ids = new Set<string>();
@@ -236,6 +333,14 @@ export function InsightsPage() {
         .length,
       action_items: insightsData.filter((d) => d.actionItems.length > 0)
         .length,
+      key_takeaways: insightsData.filter((d) => d.keyTakeaways.length > 0)
+        .length,
+      learning_outcomes: insightsData.filter((d) => d.learningOutcomes.length > 0)
+        .length,
+      topics: insightsData.filter((d) => d.topics.length > 0).length,
+      decisions: insightsData.filter((d) => d.decisions.length > 0).length,
+      recommendations: insightsData.filter((d) => d.recommendations.length > 0)
+        .length,
     };
   }, [insightsData]);
 
@@ -245,8 +350,9 @@ export function InsightsPage() {
         <div className="page-header">
           <h1>Meeting Insights</h1>
           <p className="page-header-subtitle">
-            AI-generated summaries, key concepts, and action items from meeting
-            transcripts
+            AI-generated summaries, key concepts, action items, key takeaways,
+            learning outcomes, topics, decisions, and recommendations from
+            meeting transcripts
           </p>
         </div>
 
@@ -308,6 +414,71 @@ export function InsightsPage() {
                   </span>
                 </div>
               </div>
+              <div className="insights-summary-card">
+                <div className="insights-summary-icon insights-summary-icon-primary">
+                  <BookOpen size={20} />
+                </div>
+                <div className="insights-summary-body">
+                  <span className="insights-summary-value">
+                    {totalKeyTakeaways}
+                  </span>
+                  <span className="insights-summary-label">
+                    Key Takeaways
+                  </span>
+                </div>
+              </div>
+              <div className="insights-summary-card">
+                <div className="insights-summary-icon insights-summary-icon-success">
+                  <GraduationCap size={20} />
+                </div>
+                <div className="insights-summary-body">
+                  <span className="insights-summary-value">
+                    {totalLearningOutcomes}
+                  </span>
+                  <span className="insights-summary-label">
+                    Learning Outcomes
+                  </span>
+                </div>
+              </div>
+              <div className="insights-summary-card">
+                <div className="insights-summary-icon insights-summary-icon-warning">
+                  <Tag size={20} />
+                </div>
+                <div className="insights-summary-body">
+                  <span className="insights-summary-value">
+                    {totalTopics}
+                  </span>
+                  <span className="insights-summary-label">
+                    Topics
+                  </span>
+                </div>
+              </div>
+              <div className="insights-summary-card">
+                <div className="insights-summary-icon insights-summary-icon-error">
+                  <Gavel size={20} />
+                </div>
+                <div className="insights-summary-body">
+                  <span className="insights-summary-value">
+                    {totalDecisions}
+                  </span>
+                  <span className="insights-summary-label">
+                    Decisions
+                  </span>
+                </div>
+              </div>
+              <div className="insights-summary-card">
+                <div className="insights-summary-icon insights-summary-icon-success">
+                  <ThumbsUp size={20} />
+                </div>
+                <div className="insights-summary-body">
+                  <span className="insights-summary-value">
+                    {totalRecommendations}
+                  </span>
+                  <span className="insights-summary-label">
+                    Recommendations
+                  </span>
+                </div>
+              </div>
             </div>
 
             <section className="panel insights-panel">
@@ -352,6 +523,21 @@ export function InsightsPage() {
                     </option>
                     <option value="action_items">
                       Action Items ({sectionCounts.action_items})
+                    </option>
+                    <option value="key_takeaways">
+                      Key Takeaways ({sectionCounts.key_takeaways})
+                    </option>
+                    <option value="learning_outcomes">
+                      Learning Outcomes ({sectionCounts.learning_outcomes})
+                    </option>
+                    <option value="topics">
+                      Topics ({sectionCounts.topics})
+                    </option>
+                    <option value="decisions">
+                      Decisions ({sectionCounts.decisions})
+                    </option>
+                    <option value="recommendations">
+                      Recommendations ({sectionCounts.recommendations})
                     </option>
                   </select>
                   {meetingsWithInsights.length > 0 && (
@@ -405,6 +591,18 @@ export function InsightsPage() {
                           <span className="insights-meta-sep">&middot;</span>
                           <span className="insights-meta-item">
                             {d.actionItems.length} action items
+                          </span>
+                          <span className="insights-meta-sep">&middot;</span>
+                          <span className="insights-meta-item">
+                            {d.keyTakeaways.length} takeaways
+                          </span>
+                          <span className="insights-meta-sep">&middot;</span>
+                          <span className="insights-meta-item">
+                            {d.topics.length} topics
+                          </span>
+                          <span className="insights-meta-sep">&middot;</span>
+                          <span className="insights-meta-item">
+                            {d.decisions.length} decisions
                           </span>
                         </div>
                       </div>
@@ -478,6 +676,159 @@ export function InsightsPage() {
                                     {ai.due_date && (
                                       <span className="insights-action-due">
                                         Due: {ai.due_date}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                      {(sectionFilter === "all" ||
+                        sectionFilter === "key_takeaways") &&
+                        d.keyTakeaways.length > 0 && (
+                          <div className="insights-section">
+                            <h3 className="insights-section-title">
+                              <BookOpen size={16} />
+                              Key Takeaways
+                            </h3>
+                            <div className="insights-action-list">
+                              {d.keyTakeaways.map((kt, i) => (
+                                <div
+                                  key={i}
+                                  className="insights-action-item"
+                                >
+                                  <div className="insights-action-text">
+                                    {kt.takeaway}
+                                  </div>
+                                  {kt.context && (
+                                    <div className="insights-action-meta">
+                                      <span className="insights-concept-desc">
+                                        {kt.context}
+                                      </span>
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                      {(sectionFilter === "all" ||
+                        sectionFilter === "learning_outcomes") &&
+                        d.learningOutcomes.length > 0 && (
+                          <div className="insights-section">
+                            <h3 className="insights-section-title">
+                              <GraduationCap size={16} />
+                              Learning Outcomes
+                            </h3>
+                            <div className="insights-action-list">
+                              {d.learningOutcomes.map((lo, i) => (
+                                <div
+                                  key={i}
+                                  className="insights-action-item"
+                                >
+                                  <div className="insights-action-text">
+                                    {lo.outcome}
+                                  </div>
+                                  {lo.category && (
+                                    <div className="insights-action-meta">
+                                      <span className="badge badge-type">
+                                        {lo.category}
+                                      </span>
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                      {(sectionFilter === "all" ||
+                        sectionFilter === "topics") &&
+                        d.topics.length > 0 && (
+                          <div className="insights-section">
+                            <h3 className="insights-section-title">
+                              <Tag size={16} />
+                              Topics
+                            </h3>
+                            <div className="insights-concepts-grid">
+                              {d.topics.map((t, i) => (
+                                <div key={i} className="insights-concept-card">
+                                  <div className="insights-concept-body">
+                                    <span className="insights-concept-name">
+                                      {t.topic}
+                                    </span>
+                                    {t.relevance && (
+                                      <span className="insights-concept-desc">
+                                        {t.relevance}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                      {(sectionFilter === "all" ||
+                        sectionFilter === "decisions") &&
+                        d.decisions.length > 0 && (
+                          <div className="insights-section">
+                            <h3 className="insights-section-title">
+                              <Gavel size={16} />
+                              Decisions
+                            </h3>
+                            <div className="insights-action-list">
+                              {d.decisions.map((dc, i) => (
+                                <div
+                                  key={i}
+                                  className="insights-action-item"
+                                >
+                                  <div className="insights-action-text">
+                                    {dc.decision}
+                                  </div>
+                                  <div className="insights-action-meta">
+                                    {dc.decided_by && (
+                                      <span className="insights-action-assignee">
+                                        {dc.decided_by}
+                                      </span>
+                                    )}
+                                    {dc.rationale && (
+                                      <span className="insights-concept-desc">
+                                        {dc.rationale}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                      {(sectionFilter === "all" ||
+                        sectionFilter === "recommendations") &&
+                        d.recommendations.length > 0 && (
+                          <div className="insights-section">
+                            <h3 className="insights-section-title">
+                              <ThumbsUp size={16} />
+                              Recommendations
+                            </h3>
+                            <div className="insights-action-list">
+                              {d.recommendations.map((r, i) => (
+                                <div
+                                  key={i}
+                                  className="insights-action-item"
+                                >
+                                  <div className="insights-action-text">
+                                    {r.recommendation}
+                                  </div>
+                                  <div className="insights-action-meta">
+                                    <PriorityBadge priority={r.priority} />
+                                    {r.target_audience && (
+                                      <span className="insights-action-assignee">
+                                        {r.target_audience}
                                       </span>
                                     )}
                                   </div>

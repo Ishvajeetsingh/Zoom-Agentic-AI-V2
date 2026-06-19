@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   RefreshCw,
   Play,
@@ -177,45 +178,53 @@ function AccountSyncRow({
   );
 }
 
+const POLL_INTERVAL = 30_000;
+
+async function loadAccountsAndConfigs(): Promise<{
+  accounts: ZoomAccount[];
+  configs: Record<string, SyncConfig>;
+}> {
+  const accRes = await getEnabledZoomAccounts();
+  const accounts = accRes.items;
+  const configMap: Record<string, SyncConfig> = {};
+  for (const acc of accounts) {
+    try {
+      configMap[acc.id] = await getSyncConfig(acc.id);
+    } catch { /* config will be created on first access */ }
+  }
+  return { accounts, configs: configMap };
+}
+
+async function loadHistory(): Promise<{ items: SyncHistoryEntry[]; total: number }> {
+  return getSyncHistory({ limit: 20 });
+}
+
 export function SyncPage() {
-  const [accounts, setAccounts] = useState<ZoomAccount[]>([]);
-  const [configs, setConfigs] = useState<Record<string, SyncConfig>>({});
-  const [history, setHistory] = useState<SyncHistoryEntry[]>([]);
-  const [historyTotal, setHistoryTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
   const [syncing, setSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
 
-  const loadData = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const accRes = await getEnabledZoomAccounts();
-      setAccounts(accRes.items);
+  const { data: accountData, isLoading: accountsLoading, error: accountsError } = useQuery({
+    queryKey: ["sync-accounts"],
+    queryFn: loadAccountsAndConfigs,
+    refetchInterval: POLL_INTERVAL,
+  });
 
-      const configMap: Record<string, SyncConfig> = {};
-      for (const acc of accRes.items) {
-        try {
-          const cfg = await getSyncConfig(acc.id);
-          configMap[acc.id] = cfg;
-        } catch { /* config will be created on first access */ }
-      }
-      setConfigs(configMap);
+  const { data: historyData } = useQuery({
+    queryKey: ["sync-history"],
+    queryFn: loadHistory,
+    refetchInterval: POLL_INTERVAL,
+  });
 
-      const histRes = await getSyncHistory({ limit: 20 });
-      setHistory(histRes.items);
-      setHistoryTotal(histRes.total);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load sync data");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const accounts = accountData?.accounts ?? [];
+  const configs = accountData?.configs ?? {};
+  const history = historyData?.items ?? [];
+  const historyTotal = historyData?.total ?? 0;
 
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
+  const invalidateAll = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ["sync-accounts"] });
+    queryClient.invalidateQueries({ queryKey: ["sync-history"] });
+  }, [queryClient]);
 
   const handleSyncNow = async (accountId: string) => {
     try {
@@ -223,7 +232,7 @@ export function SyncPage() {
       setSyncMessage(null);
       const res = await syncNow(accountId);
       setSyncMessage(res.message);
-      loadData();
+      invalidateAll();
     } catch (err) {
       setSyncMessage(`Sync failed: ${err instanceof Error ? err.message : "Unknown error"}`);
     } finally {
@@ -237,7 +246,7 @@ export function SyncPage() {
       setSyncMessage(null);
       const res = await syncAllEnabled();
       setSyncMessage(res.message);
-      loadData();
+      invalidateAll();
     } catch (err) {
       setSyncMessage(`Sync failed: ${err instanceof Error ? err.message : "Unknown error"}`);
     } finally {
@@ -248,11 +257,16 @@ export function SyncPage() {
   const handleConfigChange = async (accountId: string, data: SyncConfigUpdateRequest) => {
     try {
       const cfg = await updateSyncConfig(accountId, data);
-      setConfigs((prev) => ({ ...prev, [accountId]: cfg }));
+      queryClient.setQueryData(["sync-accounts"], (old: typeof accountData) => {
+        if (!old) return old;
+        return { ...old, configs: { ...old.configs, [accountId]: cfg } };
+      });
     } catch (err) {
       setSyncMessage(`Config update failed: ${err instanceof Error ? err.message : "Unknown error"}`);
     }
   };
+
+  const error = accountsError instanceof Error ? accountsError.message : accountsError ? String(accountsError) : null;
 
   return (
     <AppShell>
@@ -272,7 +286,7 @@ export function SyncPage() {
           >
             <Zap size={16} /> Sync All Enabled
           </button>
-          <button className="btn btn-secondary" onClick={loadData}>
+          <button className="btn btn-secondary" onClick={invalidateAll}>
             <RefreshCw size={16} /> Refresh
           </button>
         </div>
@@ -283,10 +297,10 @@ export function SyncPage() {
           </div>
         )}
 
-        {loading && <LoadingState message="Loading sync configuration..." />}
+        {accountsLoading && <LoadingState message="Loading sync configuration..." />}
         {error && <ErrorState message={error} />}
 
-        {!loading && !error && (
+        {!accountsLoading && !error && (
           accounts.length > 0 ? (
             <>
               {accounts.map((acc) => (

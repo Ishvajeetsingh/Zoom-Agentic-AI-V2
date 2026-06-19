@@ -21,6 +21,7 @@ from app.services.learning_output_service import LearningOutputService
 from app.services.meeting_insights_service import MeetingInsightsService
 from app.services.preprocessing_service import PreprocessingService, WorkflowError
 from app.services.transcript_cleaning_service import TranscriptCleaningError, TranscriptCleaningService
+from app.services.docx_export_service import DocxExportError, DocxExportService
 from app.services.transcript_download_service import TranscriptDownloadError, TranscriptDownloadService
 from app.services.transcript_parse_service import TranscriptParseError, TranscriptParseService
 
@@ -46,7 +47,7 @@ class OrchestrationResult:
     total_duration_seconds: float | None = None
 
 
-_DEGRADABLE_STEPS = {"generate_learning_outputs", "synthesize"}
+_DEGRADABLE_STEPS = {"generate_learning_outputs", "synthesize", "export_docx"}
 
 
 class ProcessingOrchestratorService:
@@ -153,6 +154,7 @@ class ProcessingOrchestratorService:
             ("generate", self._step_generate),
             ("generate_learning_outputs", self._step_generate_learning_outputs),
             ("synthesize", self._step_synthesize),
+            ("export_docx", self._step_export_docx),
         ]
 
         for step_name, step_fn in steps:
@@ -248,6 +250,7 @@ class ProcessingOrchestratorService:
             "generate": {"chunked", "generation_failed"},
             "generate_learning_outputs": {"completed", "completed_with_warnings", "generating_learning_outputs", "learning_generation_failed"},
             "synthesize": {"generating_learning_outputs", "synthesizing", "synthesis_failed"},
+            "export_docx": {"completed", "completed_with_warnings"},
         }
         allowed = step_prerequisites.get(step_name, set())
         return transcript_status in allowed
@@ -471,6 +474,11 @@ class ProcessingOrchestratorService:
             "key_concepts_count": len(result.key_concepts),
             "action_items_count": len(result.action_items),
         }
+
+    def _step_export_docx(self, transcript_id: uuid.UUID) -> dict:
+        service = DocxExportService(self.db, config=self.config)
+        file_path = service.generate_docx(transcript_id)
+        return {"docx_path": str(file_path)}
 
     def _resolve_default_zoom_client(self):
         try:
