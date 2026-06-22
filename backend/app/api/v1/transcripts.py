@@ -294,15 +294,11 @@ def generate_questions(
     transcript_id: uuid.UUID,
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
-    service = PreprocessingService(db)
+    orchestrator = ProcessingOrchestratorService(db)
     try:
-        result = service.run_workflow(transcript_id)
-    except WorkflowError as exc:
+        result = orchestrator.process_transcript(transcript_id)
+    except OrchestrationError as exc:
         db.rollback()
-        logger.warning(
-            "workflow.api_error",
-            extra={"transcript_id": str(transcript_id), "error": str(exc)},
-        )
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except SQLAlchemyError as exc:
         db.rollback()
@@ -316,18 +312,18 @@ def generate_questions(
         "status": result.status,
         "transcript_id": str(result.transcript_id),
         "meeting_id": str(result.meeting_id) if result.meeting_id else None,
-        "total_questions": result.total_questions,
-        "questions_persisted": result.questions_persisted,
-        "chunks_loaded": result.chunks_loaded,
+        "total_questions": result.questions_generated,
+        "questions_persisted": result.questions_generated,
+        "chunks_loaded": 0,
         "questions_generated": result.questions_generated,
-        "questions_validated": result.questions_validated,
-        "duplicates_removed": result.duplicates_removed,
+        "questions_validated": 0,
+        "duplicates_removed": 0,
         "model_used": result.model_used,
-        "total_prompt_tokens": result.total_prompt_tokens,
-        "total_completion_tokens": result.total_completion_tokens,
+        "total_prompt_tokens": None,
+        "total_completion_tokens": None,
         "total_duration_seconds": result.total_duration_seconds,
-        "learning_outputs_persisted": result.learning_outputs_persisted,
-        "insights_persisted": result.insights_persisted,
+        "learning_outputs_persisted": 0,
+        "insights_persisted": False,
     }
 
 

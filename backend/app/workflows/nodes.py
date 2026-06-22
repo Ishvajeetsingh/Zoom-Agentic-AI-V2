@@ -1022,6 +1022,11 @@ def synthesize_meeting_insights_node(
             "insights_summary": "",
             "insights_key_concepts": [],
             "insights_action_items": [],
+            "insights_key_takeaways": [],
+            "insights_learning_outcomes": [],
+            "insights_topics": [],
+            "insights_decisions": [],
+            "insights_recommendations": [],
             "insights_persisted": False,
             "status": WorkflowStatus.SYNTHESIZING,
             "current_node": "synthesize_meeting_insights",
@@ -1049,6 +1054,11 @@ def synthesize_meeting_insights_node(
             "insights_summary": "",
             "insights_key_concepts": [],
             "insights_action_items": [],
+            "insights_key_takeaways": [],
+            "insights_learning_outcomes": [],
+            "insights_topics": [],
+            "insights_decisions": [],
+            "insights_recommendations": [],
             "insights_persisted": False,
             "warnings": merged_warnings,
             "status": WorkflowStatus.SYNTHESIZING,
@@ -1065,6 +1075,26 @@ def synthesize_meeting_insights_node(
             {"item_text": ai.item_text, "assignee": ai.assignee, "priority": ai.priority, "due_date": ai.due_date}
             for ai in result.action_items
         ],
+        "insights_key_takeaways": [
+            {"takeaway": kt.takeaway, "context": kt.context}
+            for kt in result.key_takeaways
+        ],
+        "insights_learning_outcomes": [
+            {"outcome": lo.outcome, "category": lo.category}
+            for lo in result.learning_outcomes
+        ],
+        "insights_topics": [
+            {"topic": t.topic, "relevance": t.relevance}
+            for t in result.topics
+        ],
+        "insights_decisions": [
+            {"decision": d.decision, "rationale": d.rationale, "decided_by": d.decided_by}
+            for d in result.decisions
+        ],
+        "insights_recommendations": [
+            {"recommendation": r.recommendation, "priority": r.priority, "target_audience": r.target_audience}
+            for r in result.recommendations
+        ],
         "insights_model_used": result.model_used,
         "insights_total_prompt_tokens": result.prompt_tokens,
         "insights_total_completion_tokens": result.completion_tokens,
@@ -1080,6 +1110,11 @@ def persist_meeting_insights_node(state: WorkflowState, *, db_session=None) -> d
     summary = state.get("insights_summary", "")
     key_concepts = state.get("insights_key_concepts", [])
     action_items = state.get("insights_action_items", [])
+    key_takeaways = state.get("insights_key_takeaways", [])
+    learning_outcomes = state.get("insights_learning_outcomes", [])
+    topics = state.get("insights_topics", [])
+    decisions = state.get("insights_decisions", [])
+    recommendations = state.get("insights_recommendations", [])
 
     logger.info(
         "workflow.persist_meeting_insights.started",
@@ -1125,6 +1160,11 @@ def persist_meeting_insights_node(state: WorkflowState, *, db_session=None) -> d
             summary_text=summary,
             key_concepts=key_concepts,
             action_items=action_items,
+            key_takeaways=key_takeaways,
+            learning_outcomes=learning_outcomes,
+            topics=topics,
+            decisions=decisions,
+            recommendations=recommendations,
             model_used=model_used,
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,

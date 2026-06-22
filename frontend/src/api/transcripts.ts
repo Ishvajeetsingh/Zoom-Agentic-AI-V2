@@ -34,3 +34,35 @@ export function runPipeline(transcriptId: string) {
 export function orchestrateTranscript(transcriptId: string) {
   return apiPost<OrchestrateResponse>("/processing-runs", { transcript_id: transcriptId });
 }
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000/api/v1";
+
+export async function downloadDocx(transcriptId: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/exports/transcripts/${transcriptId}/docx`, {
+    method: "POST",
+  });
+  if (!response.ok) {
+    let detail = await response.text().catch(() => "");
+    if (!detail) {
+      if (response.status === 404) detail = "Transcript not found.";
+      else if (response.status === 400) detail = "DOCX file could not be generated for this transcript.";
+      else detail = `Download failed (${response.status}).`;
+    }
+    throw new Error(detail);
+  }
+  const blob = await response.blob();
+  const contentDisposition = response.headers.get("Content-Disposition");
+  let filename = `transcript_${transcriptId}.docx`;
+  if (contentDisposition) {
+    const match = contentDisposition.match(/filename\*?=(?:UTF-8'')?["']?([^;"'\n]+)/i);
+    if (match) filename = decodeURIComponent(match[1]);
+  }
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}

@@ -123,6 +123,11 @@ class WorkflowState(TypedDict, total=False):
     insights_summary: str
     insights_key_concepts: list[dict]
     insights_action_items: list[dict]
+    insights_key_takeaways: list[dict]
+    insights_learning_outcomes: list[dict]
+    insights_topics: list[dict]
+    insights_decisions: list[dict]
+    insights_recommendations: list[dict]
     insights_persisted: bool
 
     questions_model_used: str | None
@@ -180,6 +185,11 @@ def make_initial_state(
         insights_summary="",
         insights_key_concepts=[],
         insights_action_items=[],
+        insights_key_takeaways=[],
+        insights_learning_outcomes=[],
+        insights_topics=[],
+        insights_decisions=[],
+        insights_recommendations=[],
         insights_persisted=False,
         questions_model_used=None,
         questions_total_prompt_tokens=None,

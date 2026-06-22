@@ -267,7 +267,7 @@ class MeetingInsightsService:
 
         cleaned = _THINKING_RE.sub("", raw).strip()
 
-        data = self._robust_json_parse(cleaned)
+        data = self._parse_json_response(cleaned)
         if data is None or not isinstance(data, dict):
             raise MeetingInsightsError(
                 f"Failed to parse meeting insights JSON. Preview: {cleaned[:300]}"
@@ -360,6 +360,11 @@ class MeetingInsightsService:
     def _parse_key_takeaways(items: list) -> list[KeyTakeawayData]:
         result: list[KeyTakeawayData] = []
         for item in items:
+            if isinstance(item, str):
+                val = item.strip()
+                if val:
+                    result.append(KeyTakeawayData(takeaway=val, context=None))
+                continue
             if not isinstance(item, dict):
                 continue
             takeaway = str(item.get("takeaway", "")).strip()
@@ -375,6 +380,11 @@ class MeetingInsightsService:
     def _parse_learning_outcomes(items: list) -> list[LearningOutcomeData]:
         result: list[LearningOutcomeData] = []
         for item in items:
+            if isinstance(item, str):
+                val = item.strip()
+                if val:
+                    result.append(LearningOutcomeData(outcome=val, category=None))
+                continue
             if not isinstance(item, dict):
                 continue
             outcome = str(item.get("outcome", "")).strip()
@@ -390,6 +400,11 @@ class MeetingInsightsService:
     def _parse_topics(items: list) -> list[TopicData]:
         result: list[TopicData] = []
         for item in items:
+            if isinstance(item, str):
+                val = item.strip()
+                if val:
+                    result.append(TopicData(topic=val, relevance=None))
+                continue
             if not isinstance(item, dict):
                 continue
             topic = str(item.get("topic", "")).strip()
@@ -405,6 +420,11 @@ class MeetingInsightsService:
     def _parse_decisions(items: list) -> list[DecisionData]:
         result: list[DecisionData] = []
         for item in items:
+            if isinstance(item, str):
+                val = item.strip()
+                if val:
+                    result.append(DecisionData(decision=val, rationale=None, decided_by=None))
+                continue
             if not isinstance(item, dict):
                 continue
             decision = str(item.get("decision", "")).strip()
@@ -423,6 +443,11 @@ class MeetingInsightsService:
     def _parse_recommendations(items: list) -> list[RecommendationData]:
         result: list[RecommendationData] = []
         for item in items:
+            if isinstance(item, str):
+                val = item.strip()
+                if val:
+                    result.append(RecommendationData(recommendation=val, priority=None, target_audience=None))
+                continue
             if not isinstance(item, dict):
                 continue
             recommendation = str(item.get("recommendation", "")).strip()
