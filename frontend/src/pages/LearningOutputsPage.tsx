@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import {
   BookOpen,
   Layers,
@@ -29,6 +29,7 @@ import type {
 } from "../api/insights";
 
 const PAGE_SIZE = 10;
+const ITEM_PAGE_SIZE = 20;
 
 type OutputType = "all" | "flashcard" | "short_question" | "mcq";
 
@@ -42,6 +43,10 @@ interface MeetingLearningData {
   totalFlashcards: number;
   totalShortQuestions: number;
   totalMcqs: number;
+  fcOffset: number;
+  sqOffset: number;
+  fcLoading: boolean;
+  sqLoading: boolean;
 }
 
 function formatRelativeTime(dateStr: string | null): string {
@@ -238,9 +243,16 @@ export function LearningOutputsPage() {
           const transcripts = meetingTranscripts[meetingId];
           const firstTranscript = transcripts[0];
 
-          const [outputsRes, countsRes, mcqsRes] = await Promise.allSettled([
+          const [fcRes, sqRes, countsRes, mcqsRes] = await Promise.allSettled([
             getLearningOutputs(firstTranscript.id, {
-              limit: 100,
+              output_type: "flashcard",
+              offset: 0,
+              limit: ITEM_PAGE_SIZE,
+            }),
+            getLearningOutputs(firstTranscript.id, {
+              output_type: "short_question",
+              offset: 0,
+              limit: ITEM_PAGE_SIZE,
             }),
             getOutputCounts(firstTranscript.id),
             getTranscriptQuestions(firstTranscript.id, {
@@ -250,27 +262,26 @@ export function LearningOutputsPage() {
           ]);
           if (cancelled) return;
 
-          const outputs =
-            outputsRes.status === "fulfilled" ? outputsRes.value : null;
+          const flashcards =
+            fcRes.status === "fulfilled" ? fcRes.value.items : [];
+          const fcTotal =
+            fcRes.status === "fulfilled" ? fcRes.value.total : 0;
+          const shortQuestions =
+            sqRes.status === "fulfilled" ? sqRes.value.items : [];
+          const sqTotal =
+            sqRes.status === "fulfilled" ? sqRes.value.total : 0;
           const counts =
             countsRes.status === "fulfilled" ? countsRes.value : null;
           const mcqs =
             mcqsRes.status === "fulfilled" ? mcqsRes.value : null;
-
-          const flashcards =
-            outputs?.items.filter((o) => o.output_type === "flashcard") ?? [];
-          const shortQuestions =
-            outputs?.items.filter(
-              (o) => o.output_type === "short_question"
-            ) ?? [];
           const mcqItems = mcqs?.items ?? [];
 
           const flashcardCount =
             counts?.counts.find((c) => c.output_type === "flashcard")?.count ??
-            flashcards.length;
+            fcTotal;
           const sqCount =
             counts?.counts.find((c) => c.output_type === "short_question")
-              ?.count ?? shortQuestions.length;
+              ?.count ?? sqTotal;
           const mcqCount = mcqs?.total ?? mcqItems.length;
 
           const hasAny =
@@ -286,6 +297,10 @@ export function LearningOutputsPage() {
               totalFlashcards: flashcardCount,
               totalShortQuestions: sqCount,
               totalMcqs: mcqCount,
+              fcOffset: 0,
+              sqOffset: 0,
+              fcLoading: false,
+              sqLoading: false,
             });
           }
         }
@@ -382,6 +397,61 @@ export function LearningOutputsPage() {
       mcq: learningData.filter((d) => d.totalMcqs > 0).length,
     };
   }, [learningData]);
+
+  const updateMeetingData = useCallback(
+    (meetingId: string, patch: Partial<MeetingLearningData>) => {
+      setLearningData((prev) =>
+        prev.map((d) =>
+          d.meeting.id === meetingId ? { ...d, ...patch } : d
+        )
+      );
+    },
+    []
+  );
+
+  const loadFlashcardPage = useCallback(
+    async (meetingId: string, transcriptId: string, newOffset: number) => {
+      updateMeetingData(meetingId, { fcLoading: true });
+      try {
+        const res = await getLearningOutputs(transcriptId, {
+          output_type: "flashcard",
+          offset: newOffset,
+          limit: ITEM_PAGE_SIZE,
+        });
+        updateMeetingData(meetingId, {
+          flashcards: res.items,
+          totalFlashcards: res.total,
+          fcOffset: newOffset,
+          fcLoading: false,
+        });
+      } catch {
+        updateMeetingData(meetingId, { fcLoading: false });
+      }
+    },
+    [updateMeetingData]
+  );
+
+  const loadShortQuestionPage = useCallback(
+    async (meetingId: string, transcriptId: string, newOffset: number) => {
+      updateMeetingData(meetingId, { sqLoading: true });
+      try {
+        const res = await getLearningOutputs(transcriptId, {
+          output_type: "short_question",
+          offset: newOffset,
+          limit: ITEM_PAGE_SIZE,
+        });
+        updateMeetingData(meetingId, {
+          shortQuestions: res.items,
+          totalShortQuestions: res.total,
+          sqOffset: newOffset,
+          sqLoading: false,
+        });
+      } catch {
+        updateMeetingData(meetingId, { sqLoading: false });
+      }
+    },
+    [updateMeetingData]
+  );
 
   return (
     <AppShell>
@@ -551,52 +621,136 @@ export function LearningOutputsPage() {
 
                       {(outputTypeFilter === "all" ||
                         outputTypeFilter === "flashcard") &&
-                        d.flashcards.length > 0 && (
+                        d.totalFlashcards > 0 && (
                           <div className="learning-section">
                             <h3 className="learning-section-title">
                               <BookOpen size={16} />
                               Flashcards
+                              <span className="learning-section-count">{d.totalFlashcards}</span>
                               <span className="learning-section-hint" title="Click a card to flip it">
                                 <RotateCcw
                                   size={12}
                                 />
                               </span>
                             </h3>
-                            <div className="learning-flashcards-grid">
-                              {d.flashcards.map((fc, i) => (
-                                <FlashcardItem
-                                  key={fc.id}
-                                  item={fc}
-                                  index={i}
-                                />
-                              ))}
-                            </div>
+                            {d.fcLoading ? (
+                              <LoadingState message="Loading flashcards..." />
+                            ) : (
+                              <>
+                                <div className="learning-flashcards-grid">
+                                  {d.flashcards.map((fc, i) => (
+                                    <FlashcardItem
+                                      key={fc.id}
+                                      item={fc}
+                                      index={d.fcOffset + i}
+                                    />
+                                  ))}
+                                </div>
+                                {Math.ceil(d.totalFlashcards / ITEM_PAGE_SIZE) > 1 && (
+                                  <div className="pagination">
+                                    <button
+                                      className="pagination-btn"
+                                      disabled={d.fcOffset <= 0}
+                                      onClick={() =>
+                                        loadFlashcardPage(
+                                          d.meeting.id,
+                                          d.transcriptId,
+                                          Math.max(0, d.fcOffset - ITEM_PAGE_SIZE)
+                                        )
+                                      }
+                                    >
+                                      <ChevronLeft size={14} />
+                                      Previous
+                                    </button>
+                                    <span className="pagination-info">
+                                      Page {Math.floor(d.fcOffset / ITEM_PAGE_SIZE) + 1} of {Math.ceil(d.totalFlashcards / ITEM_PAGE_SIZE)} ({d.totalFlashcards} flashcards)
+                                    </span>
+                                    <button
+                                      className="pagination-btn"
+                                      disabled={d.fcOffset + ITEM_PAGE_SIZE >= d.totalFlashcards}
+                                      onClick={() =>
+                                        loadFlashcardPage(
+                                          d.meeting.id,
+                                          d.transcriptId,
+                                          d.fcOffset + ITEM_PAGE_SIZE
+                                        )
+                                      }
+                                    >
+                                      Next
+                                      <ChevronRight size={14} />
+                                    </button>
+                                  </div>
+                                )}
+                              </>
+                            )}
                           </div>
                         )}
 
                       {(outputTypeFilter === "all" ||
                         outputTypeFilter === "short_question") &&
-                        d.shortQuestions.length > 0 && (
+                        d.totalShortQuestions > 0 && (
                           <div className="learning-section">
                             <h3 className="learning-section-title">
                               <HelpCircle size={16} />
                               Short Questions
+                              <span className="learning-section-count">{d.totalShortQuestions}</span>
                             </h3>
-                            <div className="learning-questions-list">
-                              {d.shortQuestions.map((sq, i) => (
-                                <ShortQuestionItem
-                                  key={sq.id}
-                                  item={sq}
-                                  index={i}
-                                />
-                              ))}
-                            </div>
+                            {d.sqLoading ? (
+                              <LoadingState message="Loading short questions..." />
+                            ) : (
+                              <>
+                                <div className="learning-questions-list">
+                                  {d.shortQuestions.map((sq, i) => (
+                                    <ShortQuestionItem
+                                      key={sq.id}
+                                      item={sq}
+                                      index={d.sqOffset + i}
+                                    />
+                                  ))}
+                                </div>
+                                {Math.ceil(d.totalShortQuestions / ITEM_PAGE_SIZE) > 1 && (
+                                  <div className="pagination">
+                                    <button
+                                      className="pagination-btn"
+                                      disabled={d.sqOffset <= 0}
+                                      onClick={() =>
+                                        loadShortQuestionPage(
+                                          d.meeting.id,
+                                          d.transcriptId,
+                                          Math.max(0, d.sqOffset - ITEM_PAGE_SIZE)
+                                        )
+                                      }
+                                    >
+                                      <ChevronLeft size={14} />
+                                      Previous
+                                    </button>
+                                    <span className="pagination-info">
+                                      Page {Math.floor(d.sqOffset / ITEM_PAGE_SIZE) + 1} of {Math.ceil(d.totalShortQuestions / ITEM_PAGE_SIZE)} ({d.totalShortQuestions} questions)
+                                    </span>
+                                    <button
+                                      className="pagination-btn"
+                                      disabled={d.sqOffset + ITEM_PAGE_SIZE >= d.totalShortQuestions}
+                                      onClick={() =>
+                                        loadShortQuestionPage(
+                                          d.meeting.id,
+                                          d.transcriptId,
+                                          d.sqOffset + ITEM_PAGE_SIZE
+                                        )
+                                      }
+                                    >
+                                      Next
+                                      <ChevronRight size={14} />
+                                    </button>
+                                  </div>
+                                )}
+                              </>
+                            )}
                           </div>
                         )}
 
                       {(outputTypeFilter === "all" ||
                         outputTypeFilter === "mcq") &&
-                        d.mcqs.length > 0 && (
+                        d.totalMcqs > 0 && (
                           <div className="learning-section">
                             <h3 className="learning-section-title">
                               <CheckSquare size={16} />
