@@ -16,6 +16,7 @@ from app.db.repositories import transcripts as transcript_repo
 from app.schemas.questions import QuestionListOut, QuestionOut
 from app.schemas.transcripts import TranscriptDetailOut, TranscriptListOut, TranscriptListItem
 from app.services.classification_service import ClassificationService
+from app.services.professor_ranking_service import ProfessorRankingService
 from app.services.question_service import (
     QuestionGenerationError,
     preview_regenerate_mcqs,
@@ -578,4 +579,57 @@ def preview_regenerate_mcqs_endpoint(
             }
             for q in questions_preview
         ],
+    }
+
+
+@router.post("/{transcript_id}/rank-questions")
+def rank_questions(
+    transcript_id: uuid.UUID,
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    transcript = transcript_repo.get_by_id(db, transcript_id)
+    if transcript is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transcript not found")
+
+    service = ProfessorRankingService(db)
+    result = service.rank_questions(transcript_id)
+
+    return {
+        "transcript_id": str(result.transcript_id),
+        "total_questions": result.total_questions,
+        "ranked_count": len(result.ranked),
+        "top_10_count": len(result.top_10),
+        "top_20_count": len(result.top_20),
+        "top_50_count": len(result.top_50),
+        "hierarchy_verified": result.hierarchy_verified,
+        "concept_coverage": result.concept_coverage,
+        "top_10": [_ranked_dict(rq) for rq in result.top_10],
+    }
+
+
+@router.get("/{transcript_id}/ranking-preview")
+def ranking_preview(
+    transcript_id: uuid.UUID,
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    transcript = transcript_repo.get_by_id(db, transcript_id)
+    if transcript is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transcript not found")
+
+    service = ProfessorRankingService(db)
+    return service.get_ranking_preview(transcript_id)
+
+
+def _ranked_dict(rq) -> dict:
+    return {
+        "rank": rq.rank,
+        "composite_score": rq.composite_score,
+        "question_text": rq.question_text[:120],
+        "bloom_level": rq.bloom_level,
+        "category": rq.category,
+        "difficulty": rq.difficulty,
+        "educational_score": rq.educational_score,
+        "chunk_index": rq.chunk_index,
+        "rank_reasons": rq.rank_reasons,
+        "concepts_represented": rq.concepts,
     }
