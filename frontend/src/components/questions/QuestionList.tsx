@@ -11,16 +11,20 @@ const PAGE_SIZE = 20;
 
 interface QuestionListProps {
   transcriptId: string;
+  mcqOnly?: boolean;
 }
 
-export function QuestionList({ transcriptId }: QuestionListProps) {
+export function QuestionList({ transcriptId, mcqOnly }: QuestionListProps) {
   const [data, setData] = useState<PaginatedListResponse<Question> | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [offset, setOffset] = useState(0);
   const [filters, setFilters] = useState<QuestionFilterValues>({
     difficulty: "",
-    question_type: "",
+    question_type: mcqOnly ? "mcq" : "",
+    category: "",
+    bloom: "",
+    top_n: "",
     order: "asc",
   });
   const [showAnswers, setShowAnswers] = useState(false);
@@ -34,13 +38,18 @@ export function QuestionList({ transcriptId }: QuestionListProps) {
     setLoading(true);
     setError(null);
 
-    getTranscriptQuestions(transcriptId, {
+    const apiFilters: Record<string, string | number> = {
       offset,
-      limit: PAGE_SIZE,
-      difficulty: filters.difficulty || undefined,
-      question_type: filters.question_type || undefined,
+      limit: filters.top_n ? Number(filters.top_n) : PAGE_SIZE,
       order: filters.order,
-    })
+    };
+    if (filters.difficulty) apiFilters.difficulty = filters.difficulty;
+    if (filters.question_type) apiFilters.question_type = filters.question_type;
+    if (filters.category) apiFilters.category = filters.category;
+    if (filters.bloom) apiFilters.bloom = filters.bloom;
+    if (filters.top_n) apiFilters.top = Number(filters.top_n);
+
+    getTranscriptQuestions(transcriptId, apiFilters)
       .then((res) => {
         if (!cancelled) {
           setData(res);
@@ -59,8 +68,8 @@ export function QuestionList({ transcriptId }: QuestionListProps) {
     };
   }, [transcriptId, offset, filters]);
 
-  const totalPages = data ? Math.ceil(data.total / PAGE_SIZE) : 0;
-  const currentPage = data ? Math.floor(data.offset / PAGE_SIZE) + 1 : 1;
+  const totalPages = data ? Math.ceil(data.total / (filters.top_n ? Number(filters.top_n) : PAGE_SIZE)) : 0;
+  const currentPage = data ? Math.floor(data.offset / (filters.top_n ? Number(filters.top_n) : PAGE_SIZE)) + 1 : 1;
 
   if (loading) return <LoadingState message="Loading questions..." />;
   if (error) return <ErrorState message={error} />;
@@ -69,7 +78,7 @@ export function QuestionList({ transcriptId }: QuestionListProps) {
   return (
     <div className="question-list-container">
       <div className="question-list-toolbar">
-        <QuestionFilters filters={filters} onChange={setFilters} />
+        <QuestionFilters filters={filters} onChange={setFilters} hideTypeFilter={mcqOnly} />
         <label className="toggle-answers">
           <input type="checkbox" checked={showAnswers} onChange={(e: { target: { checked: boolean } }) => setShowAnswers(e.target.checked)} />
           Show Answers
@@ -82,7 +91,7 @@ export function QuestionList({ transcriptId }: QuestionListProps) {
         ))}
       </div>
 
-      {totalPages > 1 && (
+      {!filters.top_n && totalPages > 1 && (
         <div className="pagination">
           <button
             className="pagination-btn"

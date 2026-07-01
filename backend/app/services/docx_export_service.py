@@ -131,6 +131,33 @@ class DocxExportService:
 
         doc.add_paragraph()
 
+    @staticmethod
+    def _derive_key_concepts(insights: MeetingInsights) -> list[dict]:
+        if insights.key_concepts:
+            return insights.key_concepts
+        return [
+            {"concept": t.get("topic", "") if isinstance(t, dict) else str(t),
+             "description": t.get("relevance", "") if isinstance(t, dict) else "",
+             "importance_order": i + 1}
+            for i, t in enumerate(insights.topics or [])
+        ]
+
+    @staticmethod
+    def _derive_action_items(insights: MeetingInsights) -> list[dict]:
+        if insights.action_items:
+            return insights.action_items
+        items: list[dict] = []
+        for d in insights.decisions or []:
+            decision = d.get("decision", "") if isinstance(d, dict) else str(d)
+            decided_by = d.get("decided_by", "") if isinstance(d, dict) else ""
+            items.append({"item_text": decision, "assignee": decided_by or None, "priority": None, "due_date": None})
+        for r in insights.recommendations or []:
+            rec = r.get("recommendation", "") if isinstance(r, dict) else str(r)
+            audience = r.get("target_audience", "") if isinstance(r, dict) else ""
+            priority = r.get("priority", "") if isinstance(r, dict) else ""
+            items.append({"item_text": rec, "assignee": audience or None, "priority": priority or None, "due_date": None})
+        return items
+
     def _add_insights_section(self, doc: Document, insights: MeetingInsights | None) -> None:
         doc.add_heading("Meeting Insights", level=1)
 
@@ -138,13 +165,16 @@ class DocxExportService:
             doc.add_paragraph("No insights available for this transcript.")
             return
 
+        derived_kc = self._derive_key_concepts(insights)
+        derived_ai = self._derive_action_items(insights)
+
         if insights.summary_text:
             doc.add_heading("Summary", level=2)
             doc.add_paragraph(insights.summary_text)
 
-        if insights.key_concepts:
+        if derived_kc:
             doc.add_heading("Key Concepts", level=2)
-            for kc in insights.key_concepts:
+            for kc in derived_kc:
                 concept = kc.get("concept", "") if isinstance(kc, dict) else str(kc)
                 desc = kc.get("description", "") if isinstance(kc, dict) else ""
                 text = f"{concept}"
@@ -152,9 +182,9 @@ class DocxExportService:
                     text += f" — {desc}"
                 doc.add_paragraph(text, style="List Bullet")
 
-        if insights.action_items:
+        if derived_ai:
             doc.add_heading("Action Items", level=2)
-            for ai in insights.action_items:
+            for ai in derived_ai:
                 item = ai.get("item_text", "") if isinstance(ai, dict) else str(ai)
                 assignee = ai.get("assignee", "") if isinstance(ai, dict) else ""
                 priority = ai.get("priority", "") if isinstance(ai, dict) else ""

@@ -129,6 +129,9 @@ class LearningOutputItem(BaseModel):
     output_type: str
     content: dict
     difficulty: str | None = None
+    category: str | None = None
+    bloom_taxonomy: str | None = None
+    educational_score: float | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

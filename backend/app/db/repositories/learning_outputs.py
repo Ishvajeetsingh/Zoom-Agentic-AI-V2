@@ -9,6 +9,9 @@ from app.db.models.learning_output import LearningOutput
 logger = get_logger(__name__)
 
 VALID_OUTPUT_TYPES = {"flashcard", "short_question"}
+VALID_CATEGORIES = {"core_concept", "definition", "important_term", "revision", "concept", "application", "meeting"}
+VALID_DIFFICULTIES = {"easy", "medium", "hard"}
+VALID_BLOOM_LEVELS = {"remember", "understand", "apply", "analyze"}
 
 
 def get_by_id(db: Session, output_id: uuid.UUID) -> LearningOutput | None:
@@ -20,9 +23,13 @@ def list_by_transcript(
     transcript_id: uuid.UUID,
     *,
     output_type: str | None = None,
+    category: str | None = None,
+    difficulty: str | None = None,
+    bloom_taxonomy: str | None = None,
     offset: int = 0,
     limit: int = 20,
     order_desc: bool = False,
+    order_by_educational: bool = False,
 ) -> tuple[list[LearningOutput], int]:
     stmt = select(LearningOutput).where(LearningOutput.transcript_id == transcript_id)
     count_stmt = select(func.count()).select_from(LearningOutput).where(
@@ -32,10 +39,22 @@ def list_by_transcript(
     if output_type is not None:
         stmt = stmt.where(LearningOutput.output_type == output_type)
         count_stmt = count_stmt.where(LearningOutput.output_type == output_type)
+    if category is not None:
+        stmt = stmt.where(LearningOutput.category == category)
+        count_stmt = count_stmt.where(LearningOutput.category == category)
+    if difficulty is not None:
+        stmt = stmt.where(LearningOutput.difficulty == difficulty)
+        count_stmt = count_stmt.where(LearningOutput.difficulty == difficulty)
+    if bloom_taxonomy is not None:
+        stmt = stmt.where(LearningOutput.bloom_taxonomy == bloom_taxonomy)
+        count_stmt = count_stmt.where(LearningOutput.bloom_taxonomy == bloom_taxonomy)
 
     total: int = db.scalar(count_stmt) or 0
 
-    order_col = LearningOutput.created_at.desc() if order_desc else LearningOutput.created_at.asc()
+    if order_by_educational:
+        order_col = LearningOutput.educational_score.desc().nulls_last()
+    else:
+        order_col = LearningOutput.created_at.desc() if order_desc else LearningOutput.created_at.asc()
     rows = db.scalars(stmt.order_by(order_col).offset(offset).limit(limit)).all()
 
     return list(rows), total
@@ -69,6 +88,9 @@ def bulk_insert(
                 output_type=out["output_type"],
                 content=out["content"],
                 difficulty=out.get("difficulty"),
+                category=out.get("category"),
+                bloom_taxonomy=out.get("bloom_taxonomy"),
+                educational_score=out.get("educational_score"),
             )
         )
     db.flush()

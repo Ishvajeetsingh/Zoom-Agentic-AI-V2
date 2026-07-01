@@ -207,12 +207,15 @@ def generate_questions_node(
                             QuestionData(
                                 question_text=q.question_text,
                                 question_type=q.question_type,
+                                question_style=q.question_style,
                                 options=q.options,
                                 correct_answer=q.correct_answer,
                                 explanation=q.explanation,
                                 difficulty=q.difficulty,
                                 chunk_id=chunk.chunk_id,
                                 chunk_index=chunk.chunk_index,
+                                category=q.question_style,
+                                bloom_taxonomy=q.bloom_level,
                             )
                         )
 

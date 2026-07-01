@@ -15,6 +15,12 @@ from app.db.repositories import questions as question_repo
 from app.db.repositories import transcripts as transcript_repo
 from app.schemas.questions import QuestionListOut, QuestionOut
 from app.schemas.transcripts import TranscriptDetailOut, TranscriptListOut, TranscriptListItem
+from app.services.classification_service import ClassificationService
+from app.services.question_service import (
+    QuestionGenerationError,
+    preview_regenerate_mcqs,
+    regenerate_mcqs_for_transcript,
+)
 from app.services.transcript_download_service import (
     TranscriptDownloadError,
     TranscriptDownloadService,
@@ -334,7 +340,10 @@ def list_transcript_questions(
     limit: int = Query(20, ge=1, le=100),
     difficulty: str | None = Query(None),
     question_type: str | None = Query(None, alias="question_type"),
+    category: str | None = Query(None),
+    bloom_taxonomy: str | None = Query(None, alias="bloom"),
     order: str = Query("asc", pattern="^(asc|desc)$"),
+    top_n: int | None = Query(None, ge=1, le=100, alias="top"),
     db: Session = Depends(get_db),
 ) -> QuestionListOut:
     if difficulty is not None and difficulty not in question_repo.VALID_DIFFICULTIES:
@@ -347,22 +356,38 @@ def list_transcript_questions(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid question_type. Must be one of: {sorted(question_repo.VALID_QUESTION_TYPES)}",
         )
+    if category is not None and category not in question_repo.VALID_CATEGORIES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid category. Must be one of: {sorted(question_repo.VALID_CATEGORIES)}",
+        )
+    if bloom_taxonomy is not None and bloom_taxonomy not in question_repo.VALID_BLOOM_LEVELS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid bloom level. Must be one of: {sorted(question_repo.VALID_BLOOM_LEVELS)}",
+        )
+
+    effective_offset = 0 if top_n else offset
+    effective_limit = top_n if top_n else limit
 
     rows, total = question_repo.list_questions_for_transcript(
         db,
         transcript_id,
-        offset=offset,
-        limit=limit,
+        offset=effective_offset,
+        limit=effective_limit,
         difficulty=difficulty,
         question_type=question_type,
+        category=category,
+        bloom_taxonomy=bloom_taxonomy,
         order_desc=(order == "desc"),
+        order_by_educational=bool(top_n),
     )
 
     return QuestionListOut(
         items=[QuestionOut.model_validate(q) for q in rows],
         total=total,
-        offset=offset,
-        limit=limit,
+        offset=effective_offset,
+        limit=effective_limit,
     )
 
 
@@ -400,4 +425,157 @@ def run_pipeline(
         "model_used": result.model_used,
         "total_duration_seconds": result.total_duration_seconds,
         "error_message": result.error_message,
+    }
+
+
+@router.post("/{transcript_id}/classify")
+def classify_transcript(
+    transcript_id: uuid.UUID,
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    transcript = transcript_repo.get_by_id(db, transcript_id)
+    if transcript is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transcript not found")
+
+    service = ClassificationService(db)
+    try:
+        result = service.classify_transcript(transcript_id)
+        db.commit()
+    except SQLAlchemyError as exc:
+        db.rollback()
+        logger.exception("classify.database_error")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Classification failed due to a database error",
+        ) from exc
+
+    return result
+
+
+@router.post("/{transcript_id}/recompute-rankings")
+def recompute_rankings(
+    transcript_id: uuid.UUID,
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    transcript = transcript_repo.get_by_id(db, transcript_id)
+    if transcript is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transcript not found")
+
+    service = ClassificationService(db)
+    try:
+        result = service.recompute_rankings(transcript_id)
+        db.commit()
+    except SQLAlchemyError as exc:
+        db.rollback()
+        logger.exception("recompute_rankings.database_error")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Ranking recomputation failed due to a database error",
+        ) from exc
+
+    return result
+
+
+@router.post("/classify-all")
+def classify_all_transcripts(
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    result = ClassificationService.classify_all_unclassified(db)
+    try:
+        db.commit()
+    except SQLAlchemyError as exc:
+        db.rollback()
+        logger.exception("classify_all.database_error")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Bulk classification failed due to a database error",
+        ) from exc
+    return result
+
+
+@router.post("/{transcript_id}/regenerate-mcqs")
+def regenerate_mcqs(
+    transcript_id: uuid.UUID,
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    transcript = transcript_repo.get_by_id(db, transcript_id)
+    if transcript is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transcript not found")
+
+    try:
+        result = regenerate_mcqs_for_transcript(db, transcript_id)
+        db.commit()
+    except QuestionGenerationError as exc:
+        db.rollback()
+        logger.warning(
+            "regenerate_mcqs.generation_error",
+            extra={"transcript_id": str(transcript_id), "error": str(exc)},
+        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except SQLAlchemyError as exc:
+        db.rollback()
+        logger.exception("regenerate_mcqs.database_error")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Regeneration failed due to a database error",
+        ) from exc
+
+    return {
+        "transcript_id": str(result.transcript_id),
+        "meeting_id": str(result.meeting_id),
+        "previous_count": result.previous_count,
+        "new_count": result.new_count,
+        "chunks_processed": result.chunks_processed,
+        "duplicates_removed": result.duplicates_removed,
+        "classified": result.classified,
+        "ranked": result.ranked,
+        "model_used": result.model_used,
+        "aborted": result.aborted,
+        "abort_reason": result.abort_reason,
+    }
+
+
+@router.post("/{transcript_id}/preview-regenerate-mcqs")
+def preview_regenerate_mcqs_endpoint(
+    transcript_id: uuid.UUID,
+    limit: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    transcript = transcript_repo.get_by_id(db, transcript_id)
+    if transcript is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transcript not found")
+
+    try:
+        result = preview_regenerate_mcqs(db, transcript_id)
+    except QuestionGenerationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("preview_regenerate.unexpected_error")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(exc),
+        ) from exc
+
+    questions_preview = result.questions[:limit]
+    return {
+        "transcript_id": str(result.transcript_id),
+        "meeting_id": str(result.meeting_id),
+        "previous_count": result.previous_count,
+        "regenerated_count": result.regenerated_count,
+        "chunks_processed": result.chunks_processed,
+        "duplicates_removed": result.duplicates_removed,
+        "model_used": result.model_used,
+        "questions": [
+            {
+                "question_text": q.question_text,
+                "question_style": q.question_style,
+                "bloom_level": q.bloom_level,
+                "options": q.options,
+                "correct_answer": q.correct_answer,
+                "explanation": q.explanation,
+                "difficulty": q.difficulty,
+                "chunk_index": q.chunk_index,
+            }
+            for q in questions_preview
+        ],
     }

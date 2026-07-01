@@ -124,6 +124,10 @@ export interface Question {
   is_valid: boolean;
   is_duplicate: boolean;
   duplicate_of: string | null;
+  category: string | null;
+  bloom_taxonomy: string | null;
+  educational_score: number | null;
+  relevance_score: number | null;
   created_at: string;
 }
 

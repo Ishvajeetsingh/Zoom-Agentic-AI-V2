@@ -11,6 +11,8 @@ logger = get_logger(__name__)
 
 VALID_DIFFICULTIES = {"easy", "medium", "hard"}
 VALID_QUESTION_TYPES = {"mcq", "true_false", "short_answer"}
+VALID_CATEGORIES = {"quiz", "concept", "application", "meeting"}
+VALID_BLOOM_LEVELS = {"remember", "understand", "apply", "analyze"}
 
 
 def get_by_id(db: Session, question_id: uuid.UUID) -> Question | None:
@@ -34,7 +36,10 @@ def list_questions_for_transcript(
     limit: int = 20,
     difficulty: str | None = None,
     question_type: str | None = None,
+    category: str | None = None,
+    bloom_taxonomy: str | None = None,
     order_desc: bool = False,
+    order_by_educational: bool = False,
 ) -> tuple[list[Question], int]:
     stmt = select(Question).where(Question.transcript_id == transcript_id)
 
@@ -42,11 +47,18 @@ def list_questions_for_transcript(
         stmt = stmt.where(Question.difficulty == difficulty)
     if question_type is not None:
         stmt = stmt.where(Question.question_type == question_type)
+    if category is not None:
+        stmt = stmt.where(Question.category == category)
+    if bloom_taxonomy is not None:
+        stmt = stmt.where(Question.bloom_taxonomy == bloom_taxonomy)
 
     count_stmt = select(func.count()).select_from(stmt.subquery())
     total: int = db.scalar(count_stmt) or 0
 
-    order_col = Question.created_at.desc() if order_desc else Question.created_at.asc()
+    if order_by_educational:
+        order_col = Question.educational_score.desc().nulls_last()
+    else:
+        order_col = Question.created_at.desc() if order_desc else Question.created_at.asc()
     rows = db.scalars(
         stmt.order_by(order_col).offset(offset).limit(limit)
     ).all()
@@ -114,6 +126,10 @@ def bulk_insert_questions(
                 is_valid=q.validation_passed,
                 is_duplicate=q.is_duplicate,
                 duplicate_of=q.duplicate_of,
+                category=q.category,
+                bloom_taxonomy=q.bloom_taxonomy,
+                educational_score=q.educational_score,
+                relevance_score=q.relevance_score,
             )
         )
 

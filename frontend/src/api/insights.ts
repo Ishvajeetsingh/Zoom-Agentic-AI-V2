@@ -115,6 +115,9 @@ export interface LearningOutputItem {
   output_type: string;
   content: Record<string, unknown>;
   difficulty: string | null;
+  category: string | null;
+  bloom_taxonomy: string | null;
+  educational_score: number | null;
   created_at: string;
 }
 
@@ -137,9 +140,13 @@ export interface OutputCountsResponse {
 
 export interface LearningOutputParams {
   output_type?: string;
+  category?: string;
+  difficulty?: string;
+  bloom?: string;
   offset?: number;
   limit?: number;
   order?: "asc" | "desc";
+  top?: number;
 }
 
 export function getLearningOutputs(transcriptId: string, params?: LearningOutputParams) {

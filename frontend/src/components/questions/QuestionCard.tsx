@@ -19,6 +19,20 @@ const TYPE_LABELS: Record<string, string> = {
   fill_blank: "Fill in the Blank",
 };
 
+const CATEGORY_LABELS: Record<string, string> = {
+  quiz: "Quiz",
+  concept: "Concept",
+  application: "Application",
+  meeting: "Meeting",
+};
+
+const BLOOM_LABELS: Record<string, string> = {
+  remember: "Remember",
+  understand: "Understand",
+  apply: "Apply",
+  analyze: "Analyze",
+};
+
 export function QuestionCard({ question, showAnswer = false, index }: QuestionCardProps) {
   return (
     <article className="question-card">
@@ -28,6 +42,19 @@ export function QuestionCard({ question, showAnswer = false, index }: QuestionCa
           {DIFFICULTY_LABELS[question.difficulty] ?? question.difficulty}
         </span>
         <span className="badge badge-type">{TYPE_LABELS[question.question_type] ?? question.question_type}</span>
+        {question.category && (
+          <span className={`badge badge-category badge-category-${question.category}`}>
+            {CATEGORY_LABELS[question.category] ?? question.category}
+          </span>
+        )}
+        {question.bloom_taxonomy && (
+          <span className={`badge badge-bloom badge-bloom-${question.bloom_taxonomy}`}>
+            {BLOOM_LABELS[question.bloom_taxonomy] ?? question.bloom_taxonomy}
+          </span>
+        )}
+        {question.educational_score != null && (
+          <span className="badge badge-score">Edu: {question.educational_score.toFixed(1)}</span>
+        )}
         {question.is_duplicate && <span className="badge badge-duplicate">Duplicate</span>}
       </div>
 

@@ -66,3 +66,21 @@ export async function downloadDocx(transcriptId: string): Promise<void> {
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
+
+export interface RegenerateMcqsResponse {
+  transcript_id: string;
+  meeting_id: string;
+  previous_count: number;
+  new_count: number;
+  chunks_processed: number;
+  duplicates_removed: number;
+  classified: number;
+  ranked: number;
+  model_used: string;
+  aborted: boolean;
+  abort_reason: string | null;
+}
+
+export function regenerateMcqs(transcriptId: string) {
+  return apiPost<RegenerateMcqsResponse>(`/transcripts/${transcriptId}/regenerate-mcqs`);
+}

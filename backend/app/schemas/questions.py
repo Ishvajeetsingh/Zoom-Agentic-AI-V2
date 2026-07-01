@@ -21,6 +21,10 @@ class QuestionOut(BaseModel):
     is_valid: bool
     is_duplicate: bool
     duplicate_of: str | None = None
+    category: str | None = None
+    bloom_taxonomy: str | None = None
+    educational_score: float | None = None
+    relevance_score: float | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

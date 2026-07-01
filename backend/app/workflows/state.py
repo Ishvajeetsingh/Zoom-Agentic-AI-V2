@@ -60,16 +60,21 @@ class ShortQuestionData:
 class QuestionData:
     question_text: str
     question_type: str
-    options: list[str]
-    correct_answer: str
-    explanation: str
-    difficulty: str
+    question_style: str = "concept_understanding"
+    options: list[str] = field(default_factory=list)
+    correct_answer: str = ""
+    explanation: str = ""
+    difficulty: str = "medium"
     chunk_id: uuid.UUID | None = None
     chunk_index: int | None = None
     validation_passed: bool = True
     validation_errors: list[str] = field(default_factory=list)
     is_duplicate: bool = False
     duplicate_of: str | None = None
+    category: str | None = None
+    bloom_taxonomy: str | None = None
+    educational_score: float | None = None
+    relevance_score: float | None = None
 
 
 class ContentAssessment(TypedDict, total=False):

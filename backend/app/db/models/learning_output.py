@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, String, Text, func
+from sqlalchemy import DateTime, Float, ForeignKey, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -26,6 +26,15 @@ class LearningOutput(Base):
     output_type: Mapped[str] = mapped_column(String(30), nullable=False, index=True)
     content: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     difficulty: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    category: Mapped[str | None] = mapped_column(
+        String(50), nullable=True
+    )
+    bloom_taxonomy: Mapped[str | None] = mapped_column(
+        String(30), nullable=True
+    )
+    educational_score: Mapped[float | None] = mapped_column(
+        Float, nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

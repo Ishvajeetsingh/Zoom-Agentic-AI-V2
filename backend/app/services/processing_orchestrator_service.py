@@ -22,6 +22,7 @@ from app.services.meeting_insights_service import MeetingInsightsService
 from app.services.preprocessing_service import PreprocessingService, WorkflowError
 from app.services.transcript_cleaning_service import TranscriptCleaningError, TranscriptCleaningService
 from app.services.docx_export_service import DocxExportError, DocxExportService
+from app.services.classification_service import ClassificationService
 from app.services.transcript_download_service import TranscriptDownloadError, TranscriptDownloadService
 from app.services.transcript_parse_service import TranscriptParseError, TranscriptParseService
 
@@ -47,7 +48,7 @@ class OrchestrationResult:
     total_duration_seconds: float | None = None
 
 
-_DEGRADABLE_STEPS = {"generate_learning_outputs", "synthesize", "export_docx"}
+_DEGRADABLE_STEPS = {"generate_learning_outputs", "classify", "synthesize", "export_docx"}
 
 
 class ProcessingOrchestratorService:
@@ -153,6 +154,7 @@ class ProcessingOrchestratorService:
             ("chunk", self._step_chunk),
             ("generate", self._step_generate),
             ("generate_learning_outputs", self._step_generate_learning_outputs),
+            ("classify", self._step_classify),
             ("synthesize", self._step_synthesize),
             ("export_docx", self._step_export_docx),
         ]
@@ -249,7 +251,8 @@ class ProcessingOrchestratorService:
             "chunk": {"cleaned", "chunking_failed"},
             "generate": {"chunked", "generation_failed"},
             "generate_learning_outputs": {"completed", "completed_with_warnings", "generating_learning_outputs", "learning_generation_failed"},
-            "synthesize": {"generating_learning_outputs", "synthesizing", "synthesis_failed"},
+            "classify": {"completed", "completed_with_warnings", "generating_learning_outputs", "learning_generation_failed"},
+            "synthesize": {"completed", "completed_with_warnings", "generating_learning_outputs", "synthesizing", "synthesis_failed"},
             "export_docx": {"completed", "completed_with_warnings"},
         }
         allowed = step_prerequisites.get(step_name, set())
@@ -383,6 +386,40 @@ class ProcessingOrchestratorService:
             self.db.commit()
 
         return {"learning_outputs_persisted": total_persisted}
+
+    def _step_classify(self, transcript_id: uuid.UUID) -> dict:
+        from app.db.models.question import Question
+        from app.db.models.learning_output import LearningOutput
+        from sqlalchemy import select, func as sa_func
+
+        has_questions = self.db.scalar(
+            select(sa_func.count()).select_from(Question).where(
+                Question.transcript_id == transcript_id,
+                Question.is_duplicate == False,
+            )
+        )
+        has_lo = self.db.scalar(
+            select(sa_func.count()).select_from(LearningOutput).where(
+                LearningOutput.transcript_id == transcript_id,
+            )
+        )
+
+        if not has_questions and not has_lo:
+            return {"questions_classified": 0, "learning_outputs_classified": 0, "skipped_reason": "no_content"}
+
+        service = ClassificationService(self.db)
+        try:
+            result = service.classify_transcript(transcript_id)
+            self.db.commit()
+        except Exception as exc:
+            self.db.rollback()
+            logger.warning(
+                "orchestrator.classify_failed",
+                extra={"transcript_id": str(transcript_id), "error": str(exc)},
+            )
+            return {"questions_classified": 0, "learning_outputs_classified": 0, "error": str(exc)}
+
+        return result
 
     def _step_synthesize(self, transcript_id: uuid.UUID) -> dict:
         transcript = transcript_repo.get_by_id(self.db, transcript_id)

@@ -47,6 +47,16 @@ interface MeetingLearningData {
   sqOffset: number;
   fcLoading: boolean;
   sqLoading: boolean;
+  fcCategoryFilter: string;
+  fcDifficultyFilter: string;
+  fcTopFilter: number | "";
+  sqCategoryFilter: string;
+  sqDifficultyFilter: string;
+  sqBloomFilter: string;
+  sqTopFilter: number | "";
+  mcqCategoryFilter: string;
+  mcqBloomFilter: string;
+  mcqTopFilter: number | "";
 }
 
 function formatRelativeTime(dateStr: string | null): string {
@@ -69,7 +79,20 @@ function FlashcardItem({ item, index }: { item: LearningOutputItem; index: numbe
   const [flipped, setFlipped] = useState(false);
   const front = (item.content?.front as string) ?? "";
   const back = (item.content?.back as string) ?? "";
-  const category = item.content?.category as string | null;
+  const contentCategory = item.content?.category as string | null;
+
+  const CATEGORY_LABELS: Record<string, string> = {
+    core_concept: "Core Concept",
+    definition: "Definition",
+    important_term: "Important Term",
+    revision: "Revision",
+  };
+
+  const FC_DIFFICULTY_LABELS: Record<string, string> = {
+    easy: "Basic",
+    medium: "Intermediate",
+    hard: "Advanced",
+  };
 
   return (
     <div
@@ -80,19 +103,31 @@ function FlashcardItem({ item, index }: { item: LearningOutputItem; index: numbe
         <div className="learning-flashcard-front">
           <div className="learning-flashcard-index">F{index + 1}</div>
           <p className="learning-flashcard-text">{front}</p>
-          {category && (
-            <span className="badge badge-type">{category}</span>
-          )}
+          <div className="learning-flashcard-badges">
+            {item.category && (
+              <span className={`badge badge-category badge-category-${item.category}`}>
+                {CATEGORY_LABELS[item.category] ?? item.category}
+              </span>
+            )}
+            {item.educational_score != null && (
+              <span className="badge badge-score">Edu: {item.educational_score.toFixed(1)}</span>
+            )}
+            {contentCategory && (
+              <span className="badge badge-type">{contentCategory}</span>
+            )}
+          </div>
           <span className="learning-flashcard-hint">Click to flip</span>
         </div>
         <div className="learning-flashcard-back">
           <div className="learning-flashcard-index">F{index + 1}</div>
           <p className="learning-flashcard-text">{back}</p>
-          {item.difficulty && (
-            <span className={`badge badge-difficulty-${item.difficulty}`}>
-              {item.difficulty}
-            </span>
-          )}
+          <div className="learning-flashcard-badges">
+            {item.difficulty && (
+              <span className={`badge badge-difficulty-${item.difficulty}`}>
+                {FC_DIFFICULTY_LABELS[item.difficulty] ?? item.difficulty}
+              </span>
+            )}
+          </div>
           <span className="learning-flashcard-hint">Click to flip</span>
         </div>
       </div>
@@ -105,6 +140,19 @@ function ShortQuestionItem({ item, index }: { item: LearningOutputItem; index: n
   const questionText = (item.content?.question_text as string) ?? "";
   const sampleAnswer = (item.content?.sample_answer as string) ?? "";
 
+  const SQ_CATEGORY_LABELS: Record<string, string> = {
+    concept: "Concept",
+    application: "Application",
+    meeting: "Meeting",
+  };
+
+  const BLOOM_LABELS: Record<string, string> = {
+    remember: "Remember",
+    understand: "Understand",
+    apply: "Apply",
+    analyze: "Analyze",
+  };
+
   return (
     <div className="learning-sq-card">
       <div className="learning-sq-header">
@@ -115,6 +163,19 @@ function ShortQuestionItem({ item, index }: { item: LearningOutputItem; index: n
           </span>
         )}
         <span className="badge badge-type">Short Answer</span>
+        {item.category && (
+          <span className={`badge badge-category badge-category-${item.category}`}>
+            {SQ_CATEGORY_LABELS[item.category] ?? item.category}
+          </span>
+        )}
+        {item.bloom_taxonomy && (
+          <span className={`badge badge-bloom badge-bloom-${item.bloom_taxonomy}`}>
+            {BLOOM_LABELS[item.bloom_taxonomy] ?? item.bloom_taxonomy}
+          </span>
+        )}
+        {item.educational_score != null && (
+          <span className="badge badge-score">Edu: {item.educational_score.toFixed(1)}</span>
+        )}
       </div>
       <p className="learning-sq-question">{questionText}</p>
       {showAnswer ? (
@@ -138,6 +199,20 @@ function ShortQuestionItem({ item, index }: { item: LearningOutputItem; index: n
 function McqItem({ question, index }: { question: Question; index: number }) {
   const [showAnswer, setShowAnswer] = useState(false);
 
+  const CATEGORY_LABELS: Record<string, string> = {
+    quiz: "Quiz",
+    concept: "Concept",
+    application: "Application",
+    meeting: "Meeting",
+  };
+
+  const BLOOM_LABELS: Record<string, string> = {
+    remember: "Remember",
+    understand: "Understand",
+    apply: "Apply",
+    analyze: "Analyze",
+  };
+
   return (
     <div className="learning-sq-card">
       <div className="learning-sq-header">
@@ -147,6 +222,19 @@ function McqItem({ question, index }: { question: Question; index: number }) {
             question.difficulty.slice(1)}
         </span>
         <span className="badge badge-type">MCQ</span>
+        {question.category && (
+          <span className={`badge badge-category badge-category-${question.category}`}>
+            {CATEGORY_LABELS[question.category] ?? question.category}
+          </span>
+        )}
+        {question.bloom_taxonomy && (
+          <span className={`badge badge-bloom badge-bloom-${question.bloom_taxonomy}`}>
+            {BLOOM_LABELS[question.bloom_taxonomy] ?? question.bloom_taxonomy}
+          </span>
+        )}
+        {question.educational_score != null && (
+          <span className="badge badge-score">Edu: {question.educational_score.toFixed(1)}</span>
+        )}
       </div>
       <p className="learning-sq-question">{question.question_text}</p>
       {question.question_type === "mcq" &&
@@ -301,6 +389,16 @@ export function LearningOutputsPage() {
               sqOffset: 0,
               fcLoading: false,
               sqLoading: false,
+              fcCategoryFilter: "",
+              fcDifficultyFilter: "",
+              fcTopFilter: "",
+              sqCategoryFilter: "",
+              sqDifficultyFilter: "",
+              sqBloomFilter: "",
+              sqTopFilter: "",
+              mcqCategoryFilter: "",
+              mcqBloomFilter: "",
+              mcqTopFilter: "",
             });
           }
         }
@@ -410,18 +508,22 @@ export function LearningOutputsPage() {
   );
 
   const loadFlashcardPage = useCallback(
-    async (meetingId: string, transcriptId: string, newOffset: number) => {
+    async (meetingId: string, transcriptId: string, newOffset: number, category?: string, difficulty?: string, topN?: number | "") => {
       updateMeetingData(meetingId, { fcLoading: true });
       try {
-        const res = await getLearningOutputs(transcriptId, {
+        const params: Record<string, string | number> = {
           output_type: "flashcard",
-          offset: newOffset,
-          limit: ITEM_PAGE_SIZE,
-        });
+          offset: topN ? 0 : newOffset,
+          limit: topN ? topN : ITEM_PAGE_SIZE,
+        };
+        if (category) params.category = category;
+        if (difficulty) params.difficulty = difficulty;
+        if (topN) params.top = topN;
+        const res = await getLearningOutputs(transcriptId, params);
         updateMeetingData(meetingId, {
           flashcards: res.items,
           totalFlashcards: res.total,
-          fcOffset: newOffset,
+          fcOffset: topN ? 0 : newOffset,
           fcLoading: false,
         });
       } catch {
@@ -432,22 +534,50 @@ export function LearningOutputsPage() {
   );
 
   const loadShortQuestionPage = useCallback(
-    async (meetingId: string, transcriptId: string, newOffset: number) => {
+    async (meetingId: string, transcriptId: string, newOffset: number, category?: string, difficulty?: string, bloom?: string, topN?: number | "") => {
       updateMeetingData(meetingId, { sqLoading: true });
       try {
-        const res = await getLearningOutputs(transcriptId, {
+        const params: Record<string, string | number> = {
           output_type: "short_question",
-          offset: newOffset,
-          limit: ITEM_PAGE_SIZE,
-        });
+          offset: topN ? 0 : newOffset,
+          limit: topN ? topN : ITEM_PAGE_SIZE,
+        };
+        if (category) params.category = category;
+        if (difficulty) params.difficulty = difficulty;
+        if (bloom) params.bloom = bloom;
+        if (topN) params.top = topN;
+        const res = await getLearningOutputs(transcriptId, params);
         updateMeetingData(meetingId, {
           shortQuestions: res.items,
           totalShortQuestions: res.total,
-          sqOffset: newOffset,
+          sqOffset: topN ? 0 : newOffset,
           sqLoading: false,
         });
       } catch {
         updateMeetingData(meetingId, { sqLoading: false });
+      }
+    },
+    [updateMeetingData]
+  );
+
+  const loadMcqPage = useCallback(
+    async (meetingId: string, transcriptId: string, category?: string, bloom?: string, topN?: number | "") => {
+      try {
+        const params: Record<string, string | number> = {
+          question_type: "mcq",
+          offset: 0,
+          limit: topN ? topN : 100,
+        };
+        if (category) params.category = category;
+        if (bloom) params.bloom = bloom;
+        if (topN) params.top = topN;
+        const res = await getTranscriptQuestions(transcriptId, params);
+        updateMeetingData(meetingId, {
+          mcqs: res.items,
+          totalMcqs: res.total,
+        });
+      } catch {
+        // keep existing mcqs on error
       }
     },
     [updateMeetingData]
@@ -632,6 +762,51 @@ export function LearningOutputsPage() {
                                   size={12}
                                 />
                               </span>
+                              <span className="learning-section-filters">
+                                <select
+                                  className="filter-select filter-select-inline"
+                                  value={d.fcCategoryFilter}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    updateMeetingData(d.meeting.id, { fcCategoryFilter: val });
+                                    loadFlashcardPage(d.meeting.id, d.transcriptId, 0, val, d.fcDifficultyFilter, d.fcTopFilter);
+                                  }}
+                                >
+                                  <option value="">All Categories</option>
+                                  <option value="core_concept">Core Concept</option>
+                                  <option value="definition">Definition</option>
+                                  <option value="important_term">Important Term</option>
+                                  <option value="revision">Revision</option>
+                                </select>
+                                <select
+                                  className="filter-select filter-select-inline"
+                                  value={d.fcDifficultyFilter}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    updateMeetingData(d.meeting.id, { fcDifficultyFilter: val });
+                                    loadFlashcardPage(d.meeting.id, d.transcriptId, 0, d.fcCategoryFilter, val, d.fcTopFilter);
+                                  }}
+                                >
+                                  <option value="">All Difficulties</option>
+                                  <option value="easy">Easy</option>
+                                  <option value="medium">Medium</option>
+                                  <option value="hard">Hard</option>
+                                </select>
+                                <select
+                                  className="filter-select filter-select-inline"
+                                  value={d.fcTopFilter === "" ? "" : String(d.fcTopFilter)}
+                                  onChange={(e) => {
+                                    const val = e.target.value === "" ? "" : parseInt(e.target.value, 10);
+                                    updateMeetingData(d.meeting.id, { fcTopFilter: val });
+                                    loadFlashcardPage(d.meeting.id, d.transcriptId, 0, d.fcCategoryFilter, d.fcDifficultyFilter, val);
+                                  }}
+                                >
+                                  <option value="">All</option>
+                                  <option value="10">Top 10</option>
+                                  <option value="20">Top 20</option>
+                                  <option value="50">Top 50</option>
+                                </select>
+                              </span>
                             </h3>
                             {d.fcLoading ? (
                               <LoadingState message="Loading flashcards..." />
@@ -646,7 +821,7 @@ export function LearningOutputsPage() {
                                     />
                                   ))}
                                 </div>
-                                {Math.ceil(d.totalFlashcards / ITEM_PAGE_SIZE) > 1 && (
+                                {Math.ceil(d.totalFlashcards / ITEM_PAGE_SIZE) > 1 && !d.fcTopFilter && (
                                   <div className="pagination">
                                     <button
                                       className="pagination-btn"
@@ -655,7 +830,10 @@ export function LearningOutputsPage() {
                                         loadFlashcardPage(
                                           d.meeting.id,
                                           d.transcriptId,
-                                          Math.max(0, d.fcOffset - ITEM_PAGE_SIZE)
+                                          Math.max(0, d.fcOffset - ITEM_PAGE_SIZE),
+                                          d.fcCategoryFilter || undefined,
+                                          d.fcDifficultyFilter || undefined,
+                                          d.fcTopFilter || undefined
                                         )
                                       }
                                     >
@@ -672,7 +850,10 @@ export function LearningOutputsPage() {
                                         loadFlashcardPage(
                                           d.meeting.id,
                                           d.transcriptId,
-                                          d.fcOffset + ITEM_PAGE_SIZE
+                                          d.fcOffset + ITEM_PAGE_SIZE,
+                                          d.fcCategoryFilter || undefined,
+                                          d.fcDifficultyFilter || undefined,
+                                          d.fcTopFilter || undefined
                                         )
                                       }
                                     >
@@ -694,6 +875,65 @@ export function LearningOutputsPage() {
                               <HelpCircle size={16} />
                               Short Questions
                               <span className="learning-section-count">{d.totalShortQuestions}</span>
+                              <span className="learning-section-filters">
+                                <select
+                                  className="filter-select filter-select-inline"
+                                  value={d.sqCategoryFilter}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    updateMeetingData(d.meeting.id, { sqCategoryFilter: val });
+                                    loadShortQuestionPage(d.meeting.id, d.transcriptId, 0, val, d.sqDifficultyFilter, d.sqBloomFilter, d.sqTopFilter);
+                                  }}
+                                >
+                                  <option value="">All Categories</option>
+                                  <option value="concept">Concept</option>
+                                  <option value="application">Application</option>
+                                  <option value="meeting">Meeting</option>
+                                </select>
+                                <select
+                                  className="filter-select filter-select-inline"
+                                  value={d.sqDifficultyFilter}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    updateMeetingData(d.meeting.id, { sqDifficultyFilter: val });
+                                    loadShortQuestionPage(d.meeting.id, d.transcriptId, 0, d.sqCategoryFilter, val, d.sqBloomFilter, d.sqTopFilter);
+                                  }}
+                                >
+                                  <option value="">All Difficulties</option>
+                                  <option value="easy">Easy</option>
+                                  <option value="medium">Medium</option>
+                                  <option value="hard">Hard</option>
+                                </select>
+                                <select
+                                  className="filter-select filter-select-inline"
+                                  value={d.sqBloomFilter}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    updateMeetingData(d.meeting.id, { sqBloomFilter: val });
+                                    loadShortQuestionPage(d.meeting.id, d.transcriptId, 0, d.sqCategoryFilter, d.sqDifficultyFilter, val, d.sqTopFilter);
+                                  }}
+                                >
+                                  <option value="">All Bloom Levels</option>
+                                  <option value="remember">Remember</option>
+                                  <option value="understand">Understand</option>
+                                  <option value="apply">Apply</option>
+                                  <option value="analyze">Analyze</option>
+                                </select>
+                                <select
+                                  className="filter-select filter-select-inline"
+                                  value={d.sqTopFilter === "" ? "" : String(d.sqTopFilter)}
+                                  onChange={(e) => {
+                                    const val = e.target.value === "" ? "" : parseInt(e.target.value, 10);
+                                    updateMeetingData(d.meeting.id, { sqTopFilter: val });
+                                    loadShortQuestionPage(d.meeting.id, d.transcriptId, 0, d.sqCategoryFilter, d.sqDifficultyFilter, d.sqBloomFilter, val);
+                                  }}
+                                >
+                                  <option value="">All</option>
+                                  <option value="10">Top 10</option>
+                                  <option value="20">Top 20</option>
+                                  <option value="50">Top 50</option>
+                                </select>
+                              </span>
                             </h3>
                             {d.sqLoading ? (
                               <LoadingState message="Loading short questions..." />
@@ -708,7 +948,7 @@ export function LearningOutputsPage() {
                                     />
                                   ))}
                                 </div>
-                                {Math.ceil(d.totalShortQuestions / ITEM_PAGE_SIZE) > 1 && (
+                                {Math.ceil(d.totalShortQuestions / ITEM_PAGE_SIZE) > 1 && !d.sqTopFilter && (
                                   <div className="pagination">
                                     <button
                                       className="pagination-btn"
@@ -717,7 +957,11 @@ export function LearningOutputsPage() {
                                         loadShortQuestionPage(
                                           d.meeting.id,
                                           d.transcriptId,
-                                          Math.max(0, d.sqOffset - ITEM_PAGE_SIZE)
+                                          Math.max(0, d.sqOffset - ITEM_PAGE_SIZE),
+                                          d.sqCategoryFilter || undefined,
+                                          d.sqDifficultyFilter || undefined,
+                                          d.sqBloomFilter || undefined,
+                                          d.sqTopFilter || undefined
                                         )
                                       }
                                     >
@@ -734,7 +978,11 @@ export function LearningOutputsPage() {
                                         loadShortQuestionPage(
                                           d.meeting.id,
                                           d.transcriptId,
-                                          d.sqOffset + ITEM_PAGE_SIZE
+                                          d.sqOffset + ITEM_PAGE_SIZE,
+                                          d.sqCategoryFilter || undefined,
+                                          d.sqDifficultyFilter || undefined,
+                                          d.sqBloomFilter || undefined,
+                                          d.sqTopFilter || undefined
                                         )
                                       }
                                     >
@@ -755,6 +1003,52 @@ export function LearningOutputsPage() {
                             <h3 className="learning-section-title">
                               <CheckSquare size={16} />
                               Multiple Choice Questions
+                              <span className="learning-section-filters">
+                                <select
+                                  className="filter-select filter-select-inline"
+                                  value={d.mcqCategoryFilter}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    updateMeetingData(d.meeting.id, { mcqCategoryFilter: val });
+                                    loadMcqPage(d.meeting.id, d.transcriptId, val || undefined, d.mcqBloomFilter || undefined, d.mcqTopFilter || undefined);
+                                  }}
+                                >
+                                  <option value="">All Categories</option>
+                                  <option value="quiz">Quiz</option>
+                                  <option value="concept">Concept</option>
+                                  <option value="application">Application</option>
+                                  <option value="meeting">Meeting</option>
+                                </select>
+                                <select
+                                  className="filter-select filter-select-inline"
+                                  value={d.mcqBloomFilter}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    updateMeetingData(d.meeting.id, { mcqBloomFilter: val });
+                                    loadMcqPage(d.meeting.id, d.transcriptId, d.mcqCategoryFilter || undefined, val || undefined, d.mcqTopFilter || undefined);
+                                  }}
+                                >
+                                  <option value="">All Bloom Levels</option>
+                                  <option value="remember">Remember</option>
+                                  <option value="understand">Understand</option>
+                                  <option value="apply">Apply</option>
+                                  <option value="analyze">Analyze</option>
+                                </select>
+                                <select
+                                  className="filter-select filter-select-inline"
+                                  value={d.mcqTopFilter === "" ? "" : String(d.mcqTopFilter)}
+                                  onChange={(e) => {
+                                    const val = e.target.value === "" ? "" : parseInt(e.target.value, 10);
+                                    updateMeetingData(d.meeting.id, { mcqTopFilter: val });
+                                    loadMcqPage(d.meeting.id, d.transcriptId, d.mcqCategoryFilter || undefined, d.mcqBloomFilter || undefined, val || undefined);
+                                  }}
+                                >
+                                  <option value="">All</option>
+                                  <option value="10">Top 10</option>
+                                  <option value="20">Top 20</option>
+                                  <option value="50">Top 50</option>
+                                </select>
+                              </span>
                             </h3>
                             <div className="learning-questions-list">
                               {d.mcqs.map((mc, i) => (

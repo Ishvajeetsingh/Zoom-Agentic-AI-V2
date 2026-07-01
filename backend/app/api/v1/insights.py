@@ -94,9 +94,13 @@ def get_action_items(
 def list_outputs(
     transcript_id: uuid.UUID,
     output_type: str | None = Query(None, pattern="^(flashcard|short_question)$"),
+    category: str | None = Query(None),
+    difficulty: str | None = Query(None),
+    bloom_taxonomy: str | None = Query(None, alias="bloom"),
     offset: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     order: str = Query("asc", pattern="^(asc|desc)$"),
+    top_n: int | None = Query(None, ge=1, le=100, alias="top"),
     db: Session = Depends(get_db),
 ) -> LearningOutputListOut:
     _get_transcript_or_404(db, transcript_id)
@@ -105,16 +109,39 @@ def list_outputs(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid output_type. Must be one of: {sorted(learning_output_repo.VALID_OUTPUT_TYPES)}",
         )
+    if category is not None and category not in learning_output_repo.VALID_CATEGORIES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid category. Must be one of: {sorted(learning_output_repo.VALID_CATEGORIES)}",
+        )
+    if difficulty is not None and difficulty not in learning_output_repo.VALID_DIFFICULTIES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid difficulty. Must be one of: {sorted(learning_output_repo.VALID_DIFFICULTIES)}",
+        )
+    if bloom_taxonomy is not None and bloom_taxonomy not in learning_output_repo.VALID_BLOOM_LEVELS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid bloom level. Must be one of: {sorted(learning_output_repo.VALID_BLOOM_LEVELS)}",
+        )
+
+    effective_offset = 0 if top_n else offset
+    effective_limit = top_n if top_n else limit
+
     rows, total = learning_output_repo.list_by_transcript(
         db,
         transcript_id,
         output_type=output_type,
-        offset=offset,
-        limit=limit,
+        category=category,
+        difficulty=difficulty,
+        bloom_taxonomy=bloom_taxonomy,
+        offset=effective_offset,
+        limit=effective_limit,
         order_desc=(order == "desc"),
+        order_by_educational=bool(top_n),
     )
     items = [LearningOutputItem.model_validate(row) for row in rows]
-    return LearningOutputListOut(items=items, total=total, offset=offset, limit=limit)
+    return LearningOutputListOut(items=items, total=total, offset=effective_offset, limit=effective_limit)
 
 
 @router.get("/{transcript_id}/outputs/count", response_model=OutputCountsOut)
