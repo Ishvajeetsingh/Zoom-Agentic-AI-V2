@@ -12,9 +12,10 @@ const PAGE_SIZE = 20;
 interface QuestionListProps {
   transcriptId: string;
   mcqOnly?: boolean;
+  onFiltersChange?: (filters: QuestionFilterValues) => void;
 }
 
-export function QuestionList({ transcriptId, mcqOnly }: QuestionListProps) {
+export function QuestionList({ transcriptId, mcqOnly, onFiltersChange }: QuestionListProps) {
   const [data, setData] = useState<PaginatedListResponse<Question> | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -27,6 +28,12 @@ export function QuestionList({ transcriptId, mcqOnly }: QuestionListProps) {
     top_n: "",
     order: "asc",
   });
+
+  useEffect(() => {
+    if (onFiltersChange) {
+      onFiltersChange(filters);
+    }
+  }, [filters, onFiltersChange]);
   const [showAnswers, setShowAnswers] = useState(false);
 
   useEffect(() => {

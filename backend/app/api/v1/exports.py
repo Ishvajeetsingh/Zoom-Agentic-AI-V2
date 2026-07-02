@@ -3,6 +3,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
@@ -15,6 +16,36 @@ router = APIRouter()
 logger = get_logger(__name__)
 
 
+class _BaseFilter(BaseModel):
+    difficulty: str | None = None
+    category: str | None = None
+    bloom: str | None = None
+    top: int | None = None
+
+
+class McqFilters(_BaseFilter):
+    pass
+
+
+class FlashcardFilters(BaseModel):
+    category: str | None = None
+    difficulty: str | None = None
+    top: int | None = None
+
+
+class ShortQuestionFilters(BaseModel):
+    category: str | None = None
+    difficulty: str | None = None
+    bloom: str | None = None
+    top: int | None = None
+
+
+class DocxExportFilters(BaseModel):
+    mcq: McqFilters | None = None
+    flashcard: FlashcardFilters | None = None
+    short_question: ShortQuestionFilters | None = None
+
+
 @router.get("/status")
 def export_status() -> dict[str, str]:
     return {"status": "available"}
@@ -23,6 +54,7 @@ def export_status() -> dict[str, str]:
 @router.post("/transcripts/{transcript_id}/docx")
 def export_transcript_docx(
     transcript_id: uuid.UUID,
+    filters: DocxExportFilters | None = None,
     db: Session = Depends(get_db),
 ) -> FileResponse:
     transcript = transcript_repo.get_by_id(db, transcript_id)
@@ -31,7 +63,13 @@ def export_transcript_docx(
 
     service = DocxExportService(db)
     try:
-        file_path = service.generate_docx(transcript_id)
+        filter_kwargs = filters.model_dump() if filters else {}
+        file_path = service.generate_docx(
+            transcript_id,
+            mcq_filters=filter_kwargs.get("mcq"),
+            flashcard_filters=filter_kwargs.get("flashcard"),
+            short_question_filters=filter_kwargs.get("short_question"),
+        )
     except DocxExportError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except Exception as exc:

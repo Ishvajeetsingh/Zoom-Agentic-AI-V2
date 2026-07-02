@@ -19,6 +19,8 @@ from app.db.models.meeting_insights import MeetingInsights
 from app.db.models.question import Question
 from app.db.models.transcript import Transcript
 from app.services.storage_service import LocalTranscriptStorage
+from app.db.repositories import learning_outputs as learning_output_repo
+from app.db.repositories import questions as question_repo
 
 logger = get_logger(__name__)
 
@@ -39,7 +41,14 @@ class DocxExportService:
         self.config = config
         self.storage = storage or LocalTranscriptStorage(config=config)
 
-    def generate_docx(self, transcript_id: uuid.UUID) -> Path:
+    def generate_docx(
+        self,
+        transcript_id: uuid.UUID,
+        *,
+        mcq_filters: dict | None = None,
+        flashcard_filters: dict | None = None,
+        short_question_filters: dict | None = None,
+    ) -> Path:
         transcript = self.db.get(Transcript, transcript_id)
         if transcript is None:
             raise DocxExportError(f"Transcript not found: {transcript_id}")
@@ -52,17 +61,58 @@ class DocxExportService:
             select(MeetingInsights).where(MeetingInsights.transcript_id == transcript_id)
         )
 
-        learning_outputs = self.db.scalars(
-            select(LearningOutput)
-            .where(LearningOutput.transcript_id == transcript_id)
-            .order_by(LearningOutput.created_at)
-        ).all()
+        # Use existing filtering repositories to respect UI filters and ordering
+        _flashcard_filters = flashcard_filters or {}
+        _sq_filters = short_question_filters or {}
+        _mcq_filters = mcq_filters or {}
 
-        questions = self.db.scalars(
-            select(Question)
-            .where(Question.transcript_id == transcript_id)
-            .order_by(Question.created_at)
-        ).all()
+        # Flashcards: reuse existing learning_output_repo with filter params
+        fc_rows, _ = learning_output_repo.list_by_transcript(
+            self.db,
+            transcript_id,
+            output_type="flashcard",
+            category=_flashcard_filters.get("category"),
+            difficulty=_flashcard_filters.get("difficulty"),
+            offset=0,
+            limit=_flashcard_filters.get("top", 10_000),
+            order_desc=False,
+            order_by_educational=bool(_flashcard_filters.get("top")),
+        )
+        flashcard_outputs = list(fc_rows)
+
+        # Short Questions: reuse existing learning_output_repo with filter params
+        sq_rows, _ = learning_output_repo.list_by_transcript(
+            self.db,
+            transcript_id,
+            output_type="short_question",
+            category=_sq_filters.get("category"),
+            difficulty=_sq_filters.get("difficulty"),
+            bloom_taxonomy=_sq_filters.get("bloom"),
+            offset=0,
+            limit=_sq_filters.get("top", 10_000),
+            order_desc=False,
+            order_by_educational=bool(_sq_filters.get("top")),
+        )
+        short_question_outputs = list(sq_rows)
+
+        # MCQs: reuse existing question_repo with filter params
+        mcq_difficulty = _mcq_filters.get("difficulty")
+        mcq_category = _mcq_filters.get("category")
+        mcq_bloom = _mcq_filters.get("bloom")
+        mcq_top = _mcq_filters.get("top")
+        mcq_rows, _ = question_repo.list_questions_for_transcript(
+            self.db,
+            transcript_id,
+            question_type="mcq",
+            difficulty=mcq_difficulty,
+            category=mcq_category,
+            bloom_taxonomy=mcq_bloom,
+            offset=0,
+            limit=mcq_top if mcq_top else 10_000,
+            order_desc=False,
+            order_by_educational=bool(mcq_top),
+        )
+        mcq_questions = list(mcq_rows)
 
         doc = Document()
 
@@ -72,8 +122,8 @@ class DocxExportService:
 
         self._add_metadata_section(doc, transcript, meeting)
         self._add_insights_section(doc, insights)
-        self._add_learning_outputs_section(doc, learning_outputs)
-        self._add_questions_section(doc, questions)
+        self._add_learning_outputs_section(doc, flashcard_outputs, short_question_outputs)
+        self._add_questions_section(doc, mcq_questions)
 
         meeting_id_str = str(transcript.meeting_id) if transcript.meeting_id else "no-meeting"
         export_dir = self.storage.base_dir / "exports" / meeting_id_str
@@ -253,15 +303,17 @@ class DocxExportService:
 
         doc.add_paragraph()
 
-    def _add_learning_outputs_section(self, doc: Document, learning_outputs: list[LearningOutput]) -> None:
+    def _add_learning_outputs_section(
+        self,
+        doc: Document,
+        flashcards: list[LearningOutput],
+        short_questions: list[LearningOutput],
+    ) -> None:
         doc.add_heading("Learning Outputs", level=1)
 
-        if not learning_outputs:
+        if not flashcards and not short_questions:
             doc.add_paragraph("No learning outputs available for this transcript.")
             return
-
-        flashcards = [lo for lo in learning_outputs if lo.output_type == "flashcard"]
-        short_questions = [lo for lo in learning_outputs if lo.output_type == "short_question"]
 
         if flashcards:
             doc.add_heading("Flashcards", level=2)
@@ -296,15 +348,12 @@ class DocxExportService:
 
         doc.add_paragraph()
 
-    def _add_questions_section(self, doc: Document, questions: list[Question]) -> None:
+    def _add_questions_section(self, doc: Document, mcqs: list[Question]) -> None:
         doc.add_heading("Generated Questions", level=1)
 
-        if not questions:
+        if not mcqs:
             doc.add_paragraph("No questions available for this transcript.")
             return
-
-        mcqs = [q for q in questions if q.question_type == "mcq"]
-        short_qs = [q for q in questions if q.question_type == "short_answer"]
 
         if mcqs:
             doc.add_heading("Multiple Choice Questions", level=2)
@@ -331,15 +380,5 @@ class DocxExportService:
                 answer_p.add_run(f"\nExplanation: {q.explanation}")
                 if q.difficulty:
                     answer_p.add_run(f"\nDifficulty: {q.difficulty}")
-
-        if short_qs:
-            doc.add_heading("Short Answer Questions", level=2)
-            for i, q in enumerate(short_qs, 1):
-                p = doc.add_paragraph()
-                run = p.add_run(f"Q{i}: {q.question_text}")
-                run.bold = True
-                p.add_run(f"\nExplanation: {q.explanation}")
-                if q.difficulty:
-                    p.add_run(f"\nDifficulty: {q.difficulty}")
 
         doc.add_paragraph()

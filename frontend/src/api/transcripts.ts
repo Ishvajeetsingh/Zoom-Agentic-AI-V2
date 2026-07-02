@@ -37,9 +37,37 @@ export function orchestrateTranscript(transcriptId: string) {
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000/api/v1";
 
-export async function downloadDocx(transcriptId: string): Promise<void> {
+export interface McqFilters {
+  difficulty?: string;
+  category?: string;
+  bloom?: string;
+  top?: number;
+}
+
+export interface FlashcardFilters {
+  category?: string;
+  difficulty?: string;
+  top?: number;
+}
+
+export interface ShortQuestionFilters {
+  category?: string;
+  difficulty?: string;
+  bloom?: string;
+  top?: number;
+}
+
+export interface DocxExportFilters {
+  mcq?: McqFilters;
+  flashcard?: FlashcardFilters;
+  short_question?: ShortQuestionFilters;
+}
+
+export async function downloadDocx(transcriptId: string, filters?: DocxExportFilters): Promise<void> {
   const response = await fetch(`${API_BASE_URL}/exports/transcripts/${transcriptId}/docx`, {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(filters ?? {}),
   });
   if (!response.ok) {
     let detail = await response.text().catch(() => "");
