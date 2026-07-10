@@ -31,8 +31,11 @@ function PlaceholderPage({ title }: { title: string }) {
   );
 }
 
+import { AtlasPage } from "./pages/AtlasPage";
+
 type Route =
   | { page: "dashboard" }
+  | { page: "atlas" }
   | { page: "transcripts" }
   | { page: "transcript-detail"; transcriptId: string }
   | { page: "questions" }
@@ -66,6 +69,8 @@ function parseHash(hash: string): Route {
   if (learningDetailMatch) return { page: "learning" };
 
   const routeMap: Record<string, Exclude<Route["page"], "not-found">> = {
+    "#/": "dashboard",
+    "#/atlas": "atlas",
     "#/transcripts": "transcripts",
     "#/questions": "questions",
     "#/runs": "runs",
@@ -101,6 +106,8 @@ export default function App() {
   switch (route.page) {
     case "dashboard":
       return <DashboardPage />;
+    case "atlas":
+      return <AtlasPage />;
     case "transcripts":
       return <TranscriptListPage />;
     case "transcript-detail":

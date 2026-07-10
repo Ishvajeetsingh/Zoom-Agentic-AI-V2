@@ -11,7 +11,9 @@ from app.db.models.transcript import Transcript
 from app.db.models.transcript_chunk import TranscriptChunk
 from app.db.models.transcript_segment import TranscriptSegment
 from app.db.repositories import transcripts as transcript_repo
+from app.db.repositories import transcripts
 from app.services.semantic_chunker import SemanticChunker
+from app.services.embedding_service import EmbeddingService, ChunkEmbeddingStore
 
 logger = get_logger(__name__)
 
@@ -70,6 +72,7 @@ class ChunkingService:
                 raise ChunkingError(f"Chunker produced no chunks for transcript {transcript_id}")
 
             self._persist_chunks(transcript, chunking_result.chunks)
+            self._generate_embeddings(transcript)
 
             transcript_repo.mark_chunked(
                 self.db,
@@ -143,7 +146,49 @@ class ChunkingService:
             for row in rows
         ]
 
+    def _generate_embeddings(self, transcript: Transcript) -> None:
+        """Generate and store chunk embeddings, skipping unchanged chunks."""
+        import hashlib
+        chunk_rows = self.db.scalars(
+            select(TranscriptChunk).where(TranscriptChunk.transcript_id == transcript.id)
+        ).all()
+        if not chunk_rows:
+            return
+
+        store = ChunkEmbeddingStore(self.db)
+        texts_to_embed = []
+        rows_to_embed = []
+
+        for c in chunk_rows:
+            existing = store.get_by_chunk_id(c.chunk_id)
+            if existing:
+                text_hash = hashlib.sha256(c.text.encode("utf-8")).hexdigest()
+                if existing.chunk_text_hash == text_hash:
+                    continue
+            texts_to_embed.append(c.text)
+            rows_to_embed.append(c)
+
+        if not texts_to_embed:
+            logger.info("embedding.skipped", extra={"transcript_id": str(transcript.id), "reason": "all_up_to_date"})
+            return
+
+        with EmbeddingService() as embed_svc:
+            embeddings = embed_svc.embed_batch(texts_to_embed)
+
+        for c, vector in zip(rows_to_embed, embeddings):
+            store.upsert(
+                chunk_id=c.chunk_id,
+                transcript_id=c.transcript_id,
+                meeting_id=c.meeting_id,
+                chunk_text=c.text,
+                embedding=vector,
+                model=embed_svc.model,
+            )
+        self.db.flush()
+        logger.info("embedding.completed", extra={"transcript_id": str(transcript.id), "count": len(rows_to_embed)})
+
     def _persist_chunks(self, transcript: Transcript, chunks: list) -> None:
+        import hashlib
         from app.db.repositories import transcripts as repo
 
         repo.replace_chunks(self.db, transcript, chunks)

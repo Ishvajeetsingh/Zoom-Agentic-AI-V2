@@ -34,11 +34,17 @@ class Settings(BaseSettings):
 
     ollama_base_url: str = "http://localhost:11434"
     ollama_primary_model: str = "qwen3:8b"
+    ollama_embedding_model: str = "nomic-embed-text"
+    ollama_embedding_dim: int = 768
     ollama_fallback_model: str = "llama3:8b"
     ollama_connect_timeout_seconds: float = 10.0
     ollama_read_timeout_seconds: float = 300.0
     ollama_retry_attempts: int = 3
     ollama_retry_backoff_seconds: float = 2.0
+
+    atlas_max_history_turns: int = 6
+    atlas_max_total_context_tokens: int = 6000
+    atlas_max_retrieved_chunks: int = 5
 
     question_min_count: int = 10
     question_max_count: int = 20

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   LayoutDashboard,
+  Compass,
   Video,
   Activity,
   Webhook,
@@ -22,6 +23,7 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { label: "Dashboard", href: "#/", icon: <LayoutDashboard size={20} /> },
+  { label: "Atlas", href: "#/atlas", icon: <Compass size={20} /> },
   { label: "Meetings", href: "#/meetings", icon: <Video size={20} /> },
   { label: "Queue", href: "#/queue", icon: <Activity size={20} /> },
   { label: "Webhooks", href: "#/webhooks", icon: <Webhook size={20} /> },

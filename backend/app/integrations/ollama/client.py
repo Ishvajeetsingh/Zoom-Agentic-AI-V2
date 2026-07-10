@@ -433,7 +433,68 @@ class OllamaApiClient:
 
         return result
 
-    def pull_model(self, model: str) -> None:
+    def generate_stream(
+        self,
+        prompt: str,
+        *,
+        model: str | None = None,
+        system: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+    ):
+        """Stream a generation request from Ollama /api/generate.
+
+        Yields partial response tokens as they arrive.
+        Raises OllamaConnectionError, OllamaModelError, OllamaGenerateError.
+        """
+        target_model = self.ensure_model_available(model)
+
+        payload: dict = {
+            "model": target_model,
+            "prompt": prompt,
+            "stream": True,
+        }
+        if system is not None:
+            payload["system"] = system
+        if temperature is not None:
+            payload["options"] = {"temperature": temperature}
+        if max_tokens is not None:
+            payload.setdefault("options", {})["num_predict"] = max_tokens
+
+        try:
+            with self.client.stream("POST", "/api/generate", json=payload) as response:
+                response.raise_for_status()
+                try:
+                    for raw_line in response.iter_lines():
+                        if not raw_line:
+                            continue
+                        line = raw_line.decode("utf-8") if isinstance(raw_line, bytes) else raw_line
+                        if not line.strip():
+                            continue
+                        try:
+                            import json
+                            data = json.loads(line)
+                        except json.JSONDecodeError as exc:
+                            raise OllamaGenerateError(f"Invalid JSON from Ollama stream: {line}") from exc
+
+                        if data.get("error"):
+                            raise OllamaGenerateError(f"Ollama returned error: {data['error']}")
+
+                        chunk = data.get("response", "")
+                        done = data.get("done", False)
+                        yield chunk
+
+                        if done:
+                            break
+                finally:
+                    response.close()  # type: ignore[union-attr]
+        except httpx.ConnectError as exc:
+            raise OllamaConnectionError(
+                f"Cannot connect to Ollama at {self.config.ollama_base_url}"
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise OllamaGenerateError(f"Ollama streaming request failed: {exc}") from exc
+
         logger.info("ollama.pull.started", extra={"model": model})
         try:
             response = self.client.post(
