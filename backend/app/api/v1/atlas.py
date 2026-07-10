@@ -569,9 +569,6 @@ def _render_quiz_markdown(mcqs: list[dict], requested_count: int | None = None) 
 
     import re as _re
 
-    # Matches a leading option label, case-insensitive: A:, A., A), A-, A -
-    _LABEL_RE = _re.compile(r"^\s*([A-Da-d])\s*[:.\-)]\s*")
-
     def _normalise_label(letter: str | None, idx: int) -> str:
         """Always return a single uppercase A-D letter for the option label."""
         if letter:
@@ -580,12 +577,30 @@ def _render_quiz_markdown(mcqs: list[dict], requested_count: int | None = None) 
                 return ltr
         return chr(ord("A") + idx) if 0 <= idx < 4 else str(idx + 1)
 
+    # Matches a leading option label, case-insensitive, with optional
+    # surrounding parentheses and one trailing separator ( : . - ) ).
+    #   (c): Option   C. Option   (A) Option   C: Option   C- Option
+    # Iterating strips nested/composite labels one fragment at a time
+    # while only ever matching at the very start of the remaining text.
+    _LABEL_RE = _re.compile(r"^\s*\(?\s*([A-Da-d])\s*\)?\s*[:.\-)]?\s*")
+
     def _strip_label_prefix(text: str) -> str:
-        """Remove one leading label like 'A:', 'A.', 'A)', 'A-' if present."""
-        m = _LABEL_RE.match(text or "")
-        if m:
-            return (text[m.end():]).strip()
-        return (text or "").strip()
+        """Remove any leading option-label fragments (optionally nested) from body.
+
+        Handles 'A:', 'A.', 'A)', 'A-', '(a):', '(C)', etc. Iterates so a
+        composite body like '(c): It confirms ...' is fully stripped down to
+        'It confirms ...'. Never affects characters later in the sentence.
+        """
+        body = text or ""
+        while True:
+            m = _LABEL_RE.match(body)
+            if not m:
+                break
+            stripped = body[m.end():]
+            if stripped == body:
+                break
+            body = stripped
+        return body.strip()
 
     def _opt_item(opt, idx: int) -> tuple[str, str]:
         """Return (normalised_letter, body) for an option regardless of shape.
@@ -640,23 +655,26 @@ def _render_quiz_markdown(mcqs: list[dict], requested_count: int | None = None) 
         out.append(question_text)
         out.append("")  # blank line before the options
 
-        # Render each option on its own line with a normalised **A.** label.
-        seen_letters: set[str] = set()
+        # Render each option as a markdown unordered-list item so
+        # ReactMarkdown + remark-gfm renders each option as its own block
+        # instead of merging consecutive **A.** ... lines into one paragraph.
+        # Positional order is authoritative: every stored option is emitted,
+        # no option is silently dropped. The label is always normalized to
+        # A-D from the option's position, so the rendered output is uniform
+        # even if the stored letters are missing, duplicated, or malformed.
         options = q.get("options", []) or []
-        emitted = 0
-        for idx, opt in enumerate(options):
-            if emitted >= 4:
-                break  # MCQs have exactly four options A-D; ignore extras.
+        for idx, opt in enumerate(options[:4]):
             letter, body = _opt_item(opt, idx)
-            if letter in seen_letters:
-                # De-duplicate: never emit two options with the same label.
-                continue
+            # Always use the positional label (A, B, C, D) so the rendered
+            # quiz is uniform even if stored letters are wrong/duplicated.
+            letter = chr(ord("A") + idx) if 0 <= idx < 4 else letter
             body = _strip_inline_citations(body).strip()
-            if not body and not opt:
-                continue
-            seen_letters.add(letter)
-            out.append(f"**{letter}.** {body}")
-            emitted += 1
+            if not body:
+                # Keep the slot visible so the quiz never silently loses
+                # an option (e.g. option C disappearing).
+                body = "—"
+            out.append(f"- **{letter}.** {body}")
+        out.append("")  # blank line after the full option list
 
         answer = (q.get("answer") or "").strip()
         if answer:
