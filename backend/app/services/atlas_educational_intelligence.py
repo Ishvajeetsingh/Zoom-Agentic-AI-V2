@@ -335,17 +335,25 @@ def build_summary_response(context: MeetingContext) -> EducationalResponse:
 
 
 def build_concept_explanation_response(context: MeetingContext, concept: str | None = None) -> EducationalResponse:
-    """Gather concept explanation artifacts from existing key concepts."""
-    if not context.key_concepts:
+    """Gather concept explanation artifacts from existing key concepts.
+
+    When ``concept`` (the resolved canonical concept name) is provided, the
+    artifacts restrict to that single concept — the meeting-wide ``concepts``
+    list is NOT surfaced. When ``concept`` is None, the meeting-wide behaviour
+    is preserved: the top up-to-5 stored key concepts are surfaced.
+    """
+    if not context.key_concepts and not concept:
         return EducationalResponse(
             "No key concepts available for this meeting.",
             "concept_explanation",
         )
-    artifacts = {
-        "concepts": context.key_concepts[:5],
-    }
+    artifacts: dict = {}
     if concept:
+        # Single-concept focus: explain ONLY the resolved canonical concept.
+        artifacts["concepts"] = [concept]
         artifacts["target_concept"] = concept
+    else:
+        artifacts["concepts"] = context.key_concepts[:5]
     return EducationalResponse(
         "",
         "concept_explanation",

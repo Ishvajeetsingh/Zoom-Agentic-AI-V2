@@ -70,13 +70,32 @@ def build_summary_prompt(context_str):
     )
 
 
-def build_concept_explanation_prompt(context_str):
+def build_concept_explanation_prompt(context_str, target_concept=None):
+    if target_concept:
+        focus = (
+            f"The user asked to understand a SPECIFIC concept: **{target_concept}**. "
+            f"Explain ONLY this single concept. Do NOT explain, list, or mention other "
+            f"concepts from the meeting. Keep the entire response focused exclusively on "
+            f"\"{target_concept}\" — its definition as discussed in the meeting, examples "
+            f"and supporting details from the meeting context, and its significance. "
+            f"If the meeting does not actually contain material about \"{target_concept}\", "
+            f"state that naturally in one sentence and stop — do NOT substitute another "
+            f"concept.\n"
+        )
+        quantity_line = ""
+    else:
+        focus = ""
+        quantity_line = (
+            "If the user requests a specific quantity of concepts or examples, obey that "
+            "quantity exactly — explain EXACTLY the requested number of concepts and "
+            "provide EXACTLY the requested number of examples.\n"
+        )
     return (
         "You are Atlas, a Meeting Intelligence Assistant. A user wants to understand concepts from a meeting. "
         "Use ONLY the following existing context. Explain it clearly, as if teaching a student. Keep it concise and accurate. "
         + _RAG_GROUNDING + "\n"
-        "If the user requests a specific quantity of concepts or examples, obey that quantity exactly — "
-        "explain EXACTLY the requested number of concepts and provide EXACTLY the requested number of examples.\n"
+        + focus
+        + quantity_line
         + _EXAMPLE_GROUNDING + "\n"
         + _CITATION_GUARD + "\n\n"
         + context_str

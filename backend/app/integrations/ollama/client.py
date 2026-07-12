@@ -495,22 +495,5 @@ class OllamaApiClient:
         except httpx.HTTPError as exc:
             raise OllamaGenerateError(f"Ollama streaming request failed: {exc}") from exc
 
-        logger.info("ollama.pull.started", extra={"model": model})
-        try:
-            response = self.client.post(
-                "/api/pull",
-                json={"name": model, "stream": False},
-                timeout=httpx.Timeout(self.config.ollama_read_timeout_seconds * 5),
-            )
-            response.raise_for_status()
-            data = response.json()
-            if data.get("error"):
-                raise OllamaModelError(f"Pull failed: {data['error']}")
-        except httpx.ConnectError as exc:
-            raise OllamaConnectionError(
-                f"Cannot connect to Ollama at {self.config.ollama_base_url}"
-            ) from exc
-        except httpx.HTTPError as exc:
-            raise OllamaModelError(f"Failed to pull model '{model}': {exc}") from exc
 
-        logger.info("ollama.pull.completed", extra={"model": model})
+

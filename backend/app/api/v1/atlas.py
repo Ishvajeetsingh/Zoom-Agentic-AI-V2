@@ -14,13 +14,13 @@ from app.db.models.message import Message
 from app.db.repositories import atlas as atlas_repo
 from app.db.session import SessionLocal
 from app.integrations.ollama.client import OllamaApiClient, OllamaConnectionError, OllamaModelError, OllamaGenerateError
-from app.services.atlas_context_service import build_meeting_context
+from app.services.atlas_context_service import build_meeting_context, resolve_topic
 from app.services.atlas_citation_service import (
     CitationRegistry,
     format_context_with_citations,
     finalize_response,
 )
-from app.services.atlas_intent_router import detect_intent, AtlasIntent
+from app.services.atlas_intent_router import detect_intent, parse_request, AtlasIntent, ParsedRequest
 from app.services.atlas_memory_service import build_llm_prompt_with_budget
 from app.services.atlas_educational_intelligence import (
     build_summary_response,
@@ -92,7 +92,30 @@ def _build_chat_inputs(
       the deterministic Sources section via finalize_response(). It is None
       only when there is no meeting context (the no-meeting fallback).
     """
-    meeting_context = build_meeting_context(db, conversation, user_query=payload.content)
+    parsed: ParsedRequest = parse_request(payload.content)
+    intent = parsed.intent
+    topic = parsed.topic
+    quantity = parsed.quantity
+    logger.info(
+        "atlas.intent_detected",
+        extra={
+            "intent": intent.value,
+            "conversation_id": str(conversation.id),
+            "topic": topic,
+            "quantity": quantity,
+        },
+    )
+
+    # Semantic retrieval: when the user names a specific topic ("Explain
+    # phishing detection"), embed the clean topic instead of the intent-noisy
+    # raw sentence. This makes Atlas retrieve chunks about phishing detection
+    # rather than chunks containing "explain" + "phishing" + "detection" as
+    # generic words. When no topic is extracted, fall back to the raw
+    # message — preserving existing meeting-wide behaviour.
+    retrieval_query = topic if topic else payload.content
+    meeting_context = build_meeting_context(db, conversation, user_query=retrieval_query)
+    meeting_context.requested_topic = topic
+    meeting_context.requested_quantity = quantity
     meeting_context_str, registry = format_context_with_citations(meeting_context)
 
     if not meeting_context.has_context:
@@ -112,8 +135,36 @@ def _build_chat_inputs(
         return "", None, no_meeting_text, None
 
     system_prompt = _build_system_prompt(meeting_context_str)
-    intent = detect_intent(payload.content)
-    logger.info("atlas.intent_detected", extra={"intent": intent.value, "conversation_id": str(conversation.id)})
+
+    # Topic resolution: resolve the parsed user topic against the meeting's
+    # stored key_concepts (canonical concept names) using lightweight, embed-
+    # ding-free matching (normalize -> exact/substring -> Jaccard overlap).
+    # `resolved_topic` is the canonical concept name when a match is found;
+    # the user's topic is considered "discussed" when EITHER semantic chunks
+    # were retrieved OR resolve_topic returned a canonical concept. Only when
+    # both fail do we respond "the meeting did not discuss <topic>".
+    resolved_topic: str | None = None
+    if topic:
+        resolved_topic = resolve_topic(topic, meeting_context.key_concepts)
+        # Reflect the canonical resolved name on the context so any
+        # downstream context formatter / builder referring to the requested
+        # topic uses the actual stored concept title.
+        if resolved_topic:
+            meeting_context.requested_topic = resolved_topic
+
+    topic_discussed = bool(meeting_context.retrieved_chunks) or resolved_topic is not None
+    if topic and not topic_discussed:
+        topic_disp = topic[0].upper() + topic[1:]
+        not_discussed_text = (
+            f"The meeting did not discuss **{topic_disp.lower()}**.\n\n"
+            "Try asking about a concept that was actually covered, "
+            "or rephrase without a specific topic for a meeting-wide overview."
+        )
+        return system_prompt, None, finalize_response(not_discussed_text, registry), registry
+
+    # Use the resolved canonical concept name for downstream builders so the
+    # LLM and retrieval context refer to the actual stored concept title.
+    concept_for_builder = resolved_topic if resolved_topic else topic
 
     if intent == AtlasIntent.SUMMARY:
         response_obj = build_summary_response(meeting_context)
@@ -123,11 +174,16 @@ def _build_chat_inputs(
             return system_prompt, build_summary_prompt(meeting_context_str), None, registry
 
     elif intent == AtlasIntent.CONCEPT_EXPLANATION:
-        response_obj = build_concept_explanation_response(meeting_context)
+        response_obj = build_concept_explanation_response(meeting_context, concept=concept_for_builder)
         if not response_obj.artifacts:
             return system_prompt, None, response_obj.content, registry
         else:
-            return system_prompt, build_concept_explanation_prompt(meeting_context_str), None, registry
+            # Pass the resolved canonical concept (when present) so the prompt
+            # instructs the LLM to explain ONLY that concept. When the request
+            # was meeting-wide (no resolved concept), the existing meeting-wide
+            # prompt is produced.
+            target = response_obj.artifacts.get("target_concept")
+            return system_prompt, build_concept_explanation_prompt(meeting_context_str, target_concept=target), None, registry
 
     elif intent == AtlasIntent.QUIZ_REQUEST:
         response_obj = build_quiz_response(db, meeting_context, user_message=payload.content)
@@ -580,9 +636,22 @@ def _render_quiz_markdown(mcqs: list[dict], requested_count: int | None = None) 
     # Matches a leading option label, case-insensitive, with optional
     # surrounding parentheses and one trailing separator ( : . - ) ).
     #   (c): Option   C. Option   (A) Option   C: Option   C- Option
-    # Iterating strips nested/composite labels one fragment at a time
-    # while only ever matching at the very start of the remaining text.
-    _LABEL_RE = _re.compile(r"^\s*\(?\s*([A-Da-d])\s*\)?\s*[:.\-)]?\s*")
+    # CRITICAL: a bare leading letter MUST be followed by a separator
+    # (otherwise we would strip the legitimate first letter of any option
+    # body whose first word starts with A-D, e.g. "Converting" → "onverting",
+    # "Data breaches" → "ta breaches"). The closing-paren branch keeps the
+    # separator optional because "(A) Option" / "(A): Option" are complete
+    # labels on their own. Group 1 always holds the letter for callers using
+    # m.group(1).
+    _LABEL_RE = _re.compile(
+        r"^\s*"
+        r"\(?\s*([A-Da-d])\s*\)?\s*"
+        r"(?:"
+        r"(?<=\))\s*[:.\-)]?\s*"      # ')' was consumed: parenthesized label, separator optional
+        r"|"
+        r"[:.\-)]\s*"                  # bare letter: separator REQUIRED
+        r")"
+    )
 
     def _strip_label_prefix(text: str) -> str:
         """Remove any leading option-label fragments (optionally nested) from body.
