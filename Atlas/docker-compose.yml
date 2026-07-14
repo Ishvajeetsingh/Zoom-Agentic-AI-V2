@@ -1,0 +1,27 @@
+# Standalone Atlas - local development composition.
+# Boots the standalone Atlas backend only. It reaches out to a separately
+# running Zoom Agentic AI instance (point ATLAS_API_BASE_URL at it).
+
+services:
+  atlas-backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: atlas-backend
+    ports:
+      - "${ATLAS_PORT:-8090}:8090"
+    environment:
+      ATLAS_API_BASE_URL: ${ATLAS_API_BASE_URL:-http://host.docker.internal:8000/api/v1}
+      ATLAS_API_TIMEOUT: ${ATLAS_API_TIMEOUT:-30}
+      ATLAS_API_KEY: ${ATLAS_API_KEY:-}
+      ATLAS_API_MAX_RETRIES: ${ATLAS_API_MAX_RETRIES:-3}
+      ATLAS_API_RETRY_BACKOFF_SECONDS: ${ATLAS_API_RETRY_BACKOFF_SECONDS:-0.5}
+      ATLAS_API_RETRY_STATUS_CODES: ${ATLAS_API_RETRY_STATUS_CODES:-429,500,502,503,504}
+      ATLAS_LOG_LEVEL: ${ATLAS_LOG_LEVEL:-info}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8090/health',timeout=3).status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

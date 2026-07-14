@@ -1,0 +1,9 @@
+# Standalone Atlas backend - Python dependencies.
+# Slim: the backend talks to Zoom Agentic AI over HTTP only, so there is
+# no ORM, no async DB driver, no embedding/ranking library here.
+
+fastapi==0.110.0
+uvicorn[standard]==0.29.0
+requests==2.31.0
+pydantic==2.6.4
+python-dotenv==1.0.1

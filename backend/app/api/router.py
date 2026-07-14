@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from app.api.v1 import (
     atlas,
+    atlas_proxy,
     exports,
     health,
     insights,
@@ -30,4 +31,13 @@ api_router.include_router(exports.router, prefix="/exports", tags=["exports"])
 api_router.include_router(zoom_accounts.router, prefix="/zoom-accounts", tags=["zoom-accounts"])
 api_router.include_router(sync.router, prefix="/sync", tags=["sync"])
 api_router.include_router(atlas.router, prefix="/atlas", tags=["atlas"])
+
+# Atlas-facing REST proxy for the future standalone Atlas deployment.
+# Mounted at the v1 root because its routes use absolute paths
+# (``/retrieval/search``, ``/meetings/{id}/ranked-questions``,
+# ``/transcripts/{id}/ranked-questions``) that already live under the
+# existing `/api/v1` URL space. No routes collide with existing routers,
+# and no behaviour of the integrated Atlas is changed — this only adds
+# thin HTTP wrappers around already-existing services.
+api_router.include_router(atlas_proxy.router, tags=["atlas-proxy"])
 

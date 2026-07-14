@@ -1,0 +1,45 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.tox/
+
+# ---- Packaging ----
+*.egg-info/
+build/
+dist/
+
+# ---- Env / secrets ----
+.env
+.env.*
+!.env.example
+
+# ---- IDE ----
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ---- OS ----
+.DS_Store
+Thumbs.db
+
+# ---- Node / frontend ----
+node_modules/
+.next/
+dist/
+.cache/
+
+# ---- Logs / runtime ----
+*.log
+*.pid

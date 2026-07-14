@@ -1,0 +1,5 @@
+# Standalone Atlas - top-level Python requirements.
+# Backend implements its own (slimmer) requirements.txt in backend/.
+# Listed here for tooling that expects a project-root requirements file.
+
+-r backend/requirements.txt
