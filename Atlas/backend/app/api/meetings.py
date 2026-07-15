@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Request
 
 from app.services import AtlasServiceContainer, get_container
 
@@ -19,13 +19,12 @@ router = APIRouter(prefix="/meetings", tags=["meetings"])
 
 @router.get("")
 def list_meetings(
-    page: int | None = Query(default=None, ge=1),
-    page_size: int | None = Query(default=None, ge=1, le=200),
+    request: Request,
     container: AtlasServiceContainer = Depends(get_container),
 ) -> Any:
     """``GET /meetings`` -> proxied to Zoom Agentic AI."""
     return container.meeting_service().list_meetings(
-        page=page, page_size=page_size
+        extra=dict(request.query_params)
     )
 
 

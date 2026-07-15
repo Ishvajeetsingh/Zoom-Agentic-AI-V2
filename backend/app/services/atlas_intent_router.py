@@ -60,21 +60,33 @@ _INTENT_KEYWORDS: dict[AtlasIntent, list[str]] = {
         "summarize", "summary", "overview", "brief", "recap", "what happened",
         "key points", "main points", "highlights",
     ],
+    # ACTION_ITEMS is checked before CONCEPT_EXPLANATION so that a prompt
+    # containing BOTH a generic question word ("what are") AND a specific
+    # action-items signal ("action items") resolves to ACTION_ITEMS rather
+    # than CONCEPT_EXPLANATION. detect_intent returns on the first matching
+    # keyword in dict order, so the more specific noun ("action items") must
+    # be reached before the generic "what are" string of CONCEPT_EXPLANATION.
+    # Examples guarded here: "What are the action items from this meeting?"
+    # ACTION_ITEMS keywords ("action item(s)", "tasks", "to-dos", ...) do not
+    # substring-match a normal concept question ("What is phishing detection?",
+    # "Explain the key concepts", "What are the main topics discussed?"), so
+    # moving ACTION_ITEMS up does not regress concept-explanation routing.
+    AtlasIntent.ACTION_ITEMS: [
+        "action item", "action items", "todo", "to-do", "tasks", "next steps",
+        "what needs to be done", "who should", "responsibilities",
+    ],
     AtlasIntent.CONCEPT_EXPLANATION: [
         "explain", "what is", "what are", "how does", "why is", "definition",
         "clarify", "describe", "meaning of", "concept",
     ],
     AtlasIntent.QUIZ_REQUEST: [
         "quiz", "test me", "question me", "assess", "practice", "exercise",
-        "generate quiz", "quiz me", "test my knowledge",
+        "generate quiz", "quiz me", "test my knowledge", "generate questions",
+        "generate practice questions",
     ],
     AtlasIntent.REVISION_REQUEST: [
         "revise", "review", "study", "flashcard", "revision", "study guide",
         "help me study", "prepare for exam", "revision guide",
-    ],
-    AtlasIntent.ACTION_ITEMS: [
-        "action item", "action items", "todo", "to-do", "tasks", "next steps",
-        "what needs to be done", "who should", "responsibilities",
     ],
     AtlasIntent.DECISIONS: [
         "decision", "decisions", "decided", "concluded", "agreed", "consensus",
@@ -172,9 +184,52 @@ _GENERIC_TOPIC_RE = re.compile(
     r"|in\s+this\s+meeting|from\s+the\s+meeting|of\s+the\s+meeting"
     r"|taught|learned))*"
     r"\s*"
-    # Standalone meeting placeholders.
-    r"|(?:the\s+)?(?:meeting|session|discussion|lecture|class|call|transcript|content|talk|presentation|topic|material)s?"
+    # Standalone meeting placeholders. The optional leading determiner accepts
+    # "the", "this", "that", "today's", "yesterday's", "a", "an" so residuals
+    # like "this meeting", "today's session", "the discussion" — left behind
+    # by an intent pattern that captured "summarize" / "explain" and then ran
+    # out of head — all collapse to a meeting-wide request (topic=None).
+    r"|(?:the\s+|this\s+|that\s+|today'?s\s+|yesterday'?s\s+|a\s+|an\s+)?"
+    r"(?:meeting|session|discussion|lecture|class|call|transcript|content|talk|presentation|topic|material)s?"
     r"(?:\s+(?:discussed|covered|mentioned|in\s+the\s+meeting))?\s*"
+    # Meeting-wide residuals that arrive WITH a leading connective, e.g. when
+    # a quiz/summary/action-items pattern captures the residual after its
+    # own optional connective matched empty. Covers phrases like:
+    #   "based on the meeting content", "based on this meeting",
+    #   "from this meeting", "from the meeting", "from this transcript",
+    #   "from transcript", "on the meeting", "from today's meeting",
+    #   "about today's transcript". Treats ALL of these as generic
+    # meeting-wide requests (topic=None) regardless of the detected intent,
+    # since they reference the whole meeting/transcript with no specific
+    # concept. The leading connective, optional determiner, and optional
+    # trailing "content"/"material" are all consumed so nothing leaks as a
+    # literal topic.
+    #
+    # A leading intent-noun head ("key points", "main points", "action
+    # items", "tasks", "decisions", "concepts", "topics", "ideas",
+    # "takeaways", "outcomes", "themes", "points") is OPTIONAL before the
+    # connective so residuals like "key points from this meeting" (left by
+    # the summary pattern when the discussion/meeting noun in its head
+    # matched empty) and "action items from this meeting" (left by the
+    # action-items pattern after capturing its trigger) collapse to a
+    # meeting-wide request. The head list is the SAME generic intent-nouns
+    # accepted by the concept-noun branch above so there is no duplicated
+    # logic — only meeting-wide nouns can precede the connective; a real
+    # topic like "phishing detection" / "deployment" never matches the
+    # head + connective + meeting-noun shape and so still extracts as a
+    # concrete topic.
+    r"|(?:key\s+points|main\s+points|highlights|action\s+items?|to-?dos?|tasks|next\s+steps|responsibilities|decisions?|outcomes?|conclusions?|recommendations?|suggestions?|concepts?|topics?|ideas?|takeaways?|themes?|points?)\s+"
+    r"(?:based\s+on|from|on|about|regarding|for|of|covering|related\s+to|in|during)\s+"
+    r"(?:the\s+|this\s+|that\s+|today'?s\s+|yesterday'?s\s+|a\s+|an\s+)?"
+    r"(?:meeting|session|discussion|lecture|class|call|transcript|talk|presentation|content|material|topic)s?"
+    r"(?:\s+(?:content|material|discussed|covered|mentioned))?\s*"
+    # Same connective + meeting-noun shape WITHOUT a leading head (the
+    # original Quiz-fix branch), so "from this meeting" (no head) still
+    # collapses.
+    r"|(?:based\s+on|from|on|about|regarding|for|of|covering|related\s+to)\s+"
+    r"(?:the\s+|this\s+|that\s+|today'?s\s+|yesterday'?s\s+|a\s+|an\s+)?"
+    r"(?:meeting|session|discussion|lecture|class|call|transcript|talk|presentation|content|material|topic)s?"
+    r"(?:\s+(?:content|material|discussed|covered|mentioned))?\s*"
     # Bare quantifiers / pronouns.
     r"|(?:all|every|any)\s*(?:of\s+(?:it|them|the\s+above))?\s*"
     r"|(?:everything|anything|whatever|nothing|none)\s*"

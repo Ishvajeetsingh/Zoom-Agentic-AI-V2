@@ -20,19 +20,10 @@ class MeetingClient(BaseHTTPClient):
     def list_meetings(
         self,
         *,
-        page: int | None = None,
-        page_size: int | None = None,
         extra: Mapping[str, Any] | None = None,
     ) -> Any:
         """``GET /api/v1/meetings`` - paginated meeting list."""
-        params: dict[str, Any] = {}
-        if page is not None:
-            params["page"] = page
-        if page_size is not None:
-            params["page_size"] = page_size
-        if extra:
-            params.update(extra)
-        return self.get("/meetings", params=params or None)
+        return self.get("/meetings", params=extra or None)
 
     def get_meeting(self, meeting_id: str) -> Any:
         """``GET /api/v1/meetings/{meeting_id}`` - single meeting detail."""

@@ -23,12 +23,25 @@ class AtlasMeetingService:
     def list_meetings(
         self,
         *,
-        page: int | None = None,
-        page_size: int | None = None,
+        offset: int | None = None,
+        limit: int | None = None,
+        order_by: str | None = None,
+        order: str | None = None,
         extra: Mapping[str, Any] | None = None,
     ) -> Any:
+        params: dict[str, Any] = {}
+        if offset is not None:
+            params["offset"] = offset
+        if limit is not None:
+            params["limit"] = limit
+        if order_by is not None:
+            params["order_by"] = order_by
+        if order is not None:
+            params["order"] = order
+        if extra:
+            params.update(extra)
         return self._meetings.list_meetings(
-            page=page, page_size=page_size, extra=extra
+            extra=params or None
         )
 
     def get_meeting(self, meeting_id: str) -> Any:

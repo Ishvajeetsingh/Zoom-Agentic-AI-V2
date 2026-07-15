@@ -62,7 +62,7 @@ class AtlasClient(BaseHTTPClient):
         self, conversation_id: str, *, payload: Mapping[str, Any]
     ) -> Any:
         """``PATCH /api/v1/atlas/conversations/{conversation_id}``"""
-        return self.put(
+        return self.patch(
             f"/atlas/conversations/{conversation_id}", json_body=dict(payload)
         )
 

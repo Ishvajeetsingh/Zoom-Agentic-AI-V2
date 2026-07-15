@@ -30,17 +30,15 @@ async function parseResponse<T>(response: Response): Promise<T> {
 }
 
 async function apiGet<T>(path: string, params?: Record<string, string | number | undefined>): Promise<T> {
-  const response = await fetch(apiUrl(path, params), {
-    headers: { Accept: "application/json" },
-  });
+  const response = await fetch(apiUrl(path, params));
   return parseResponse<T>(response);
 }
 
 async function apiPost<T>(path: string, body?: unknown): Promise<T> {
   const response = await fetch(apiUrl(path), {
     method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
-    body: body ? JSON.stringify({ payload: body }) : undefined,
+    headers: { "Content-Type": "application/json" },
+    body: body ? JSON.stringify(body) : undefined,
   });
   return parseResponse<T>(response);
 }
@@ -48,8 +46,8 @@ async function apiPost<T>(path: string, body?: unknown): Promise<T> {
 async function apiPatch<T>(path: string, body?: unknown): Promise<T> {
   const response = await fetch(apiUrl(path), {
     method: "PATCH",
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
-    body: body ? JSON.stringify({ payload: body }) : undefined,
+    headers: { "Content-Type": "application/json" },
+    body: body ? JSON.stringify(body) : undefined,
   });
   return parseResponse<T>(response);
 }
@@ -130,66 +128,28 @@ export interface MeetingListParams {
   order?: "asc" | "desc";
 }
 
-function normalizeMessage(message: Partial<AtlasMessage>, index: number, conversationId: string): AtlasMessage {
-  return {
-    id: message.id ?? `message-${index}`,
-    conversation_id: message.conversation_id ?? conversationId,
-    role: message.role === "assistant" ? "assistant" : "user",
-    content: message.content ?? "",
-    created_at: message.created_at ?? new Date().toISOString(),
-  };
+export function createConversation(params?: { meeting_id?: string; title?: string }) {
+  return apiPost<AtlasConversationDetail>("/atlas/conversations", params);
 }
 
-function normalizeConversation(conversation: Partial<AtlasConversationDetail>): AtlasConversationDetail {
-  const id = conversation.id ?? "";
-  const messages = Array.isArray(conversation.messages)
-    ? conversation.messages.map((message, index) => normalizeMessage(message, index, id))
-    : [];
-
-  return {
-    id,
-    session_id: conversation.session_id ?? null,
-    meeting_id: conversation.meeting_id ?? null,
-    title: conversation.title ?? null,
-    created_at: conversation.created_at ?? new Date().toISOString(),
-    updated_at: conversation.updated_at ?? conversation.created_at ?? new Date().toISOString(),
-    message_count: conversation.message_count ?? messages.length,
-    messages,
-  };
+export function listConversations() {
+  return apiGet<ConversationListResponse>("/atlas/conversations");
 }
 
-export async function createConversation(params?: { meeting_id?: string; title?: string }) {
-  const conversation = await apiPost<AtlasConversationDetail>("/atlas/conversations", params);
-  return normalizeConversation(conversation);
-}
-
-export async function listConversations(): Promise<ConversationListResponse> {
-  const data = await apiGet<ConversationListResponse | AtlasConversation[]>("/atlas/conversations");
-  const items = Array.isArray(data) ? data : data.items ?? [];
-  return {
-    items: items.map((conversation) => normalizeConversation(conversation)),
-    total: Array.isArray(data) ? items.length : data.total ?? items.length,
-    offset: Array.isArray(data) ? 0 : data.offset ?? 0,
-    limit: Array.isArray(data) ? items.length : data.limit ?? items.length,
-  };
-}
-
-export async function getConversation(conversationId: string) {
-  const conversation = await apiGet<AtlasConversationDetail>(
+export function getConversation(conversationId: string) {
+  return apiGet<AtlasConversationDetail>(
     `/atlas/conversations/${encodeURIComponent(conversationId)}`,
   );
-  return normalizeConversation(conversation);
 }
 
-export async function updateConversation(
+export function updateConversation(
   conversationId: string,
   params: { title?: string; meeting_id?: string; session_id?: string },
 ) {
-  const conversation = await apiPatch<AtlasConversationDetail>(
+  return apiPatch<AtlasConversationDetail>(
     `/atlas/conversations/${encodeURIComponent(conversationId)}`,
     params,
   );
-  return normalizeConversation(conversation);
 }
 
 export function deleteConversation(conversationId: string) {
@@ -214,9 +174,8 @@ export async function streamChat(
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Accept: "text/event-stream",
     },
-    body: JSON.stringify({ payload: params }),
+    body: JSON.stringify(params),
     signal: abortSignal,
   });
 
@@ -253,7 +212,7 @@ export async function streamChat(
             if (data.text !== undefined) onChunk(data.text);
             if (data.error) throw new Error(data.error);
           } catch {
-            onChunk(raw);
+            // Match the integrated Atlas stream parser: malformed frames are ignored.
           }
         }
       }

@@ -96,6 +96,14 @@ class BaseHTTPClient:
     ) -> Any:
         return self._request("PUT", path, json_body=json_body)
 
+    def patch(
+        self,
+        path: str,
+        *,
+        json_body: Any | None = None,
+    ) -> Any:
+        return self._request("PATCH", path, json_body=json_body)
+
     def delete(self, path: str) -> Any:
         return self._request("DELETE", path)
 

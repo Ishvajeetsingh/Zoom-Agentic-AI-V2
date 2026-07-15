@@ -24,9 +24,8 @@ from __future__ import annotations
 
 from typing import Any, Iterator, Mapping
 
-from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi import APIRouter, Body, Depends, Request, Response, status
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
 
 from app.clients.base_http_client import AtlasAPIError
 from app.services import AtlasServiceContainer, get_container
@@ -36,23 +35,16 @@ router = APIRouter(prefix="/atlas", tags=["atlas"])
 
 # ---------------------------------------------------------------------------
 # Bodies are deliberately permissive (``dict[str, Any]``): the schemas are
-# owned by the baseline Atlas router, and Atlas must not duplicate them. We
-# forward whatever the caller sends verbatim.
+# owned by the baseline Atlas router, and Atlas must not duplicate them.
+# The standalone frontend sends the same raw JSON bodies as the integrated
+# frontend; older wrapper payloads are unwrapped for compatibility.
 # ---------------------------------------------------------------------------
-class ConversationCreate(BaseModel):
-    payload: dict[str, Any] = {}
-
-
-class ConversationPatch(BaseModel):
-    payload: dict[str, Any] = {}
-
-
-class MessageCreate(BaseModel):
-    payload: dict[str, Any] = {}
-
-
-class ChatRequest(BaseModel):
-    payload: dict[str, Any] = {}
+def _baseline_payload(body: Mapping[str, Any] | None) -> dict[str, Any]:
+    if not body:
+        return {}
+    if set(body.keys()) == {"payload"} and isinstance(body.get("payload"), Mapping):
+        return dict(body["payload"])
+    return dict(body)
 
 
 # ---------------------------------------------------------------------------
@@ -60,21 +52,21 @@ class ChatRequest(BaseModel):
 # ---------------------------------------------------------------------------
 @router.post("/conversations", status_code=status.HTTP_201_CREATED)
 def create_conversation(
-    body: ConversationCreate,
+    body: dict[str, Any] = Body(default_factory=dict),
     container: AtlasServiceContainer = Depends(get_container),
 ) -> Any:
-    return container.conversation_service().create_conversation(payload=body.payload)
+    return container.conversation_service().create_conversation(
+        payload=_baseline_payload(body)
+    )
 
 
 @router.get("/conversations")
 def list_conversations(
-    meeting_id: str | None = Query(default=None),
-    offset: int | None = Query(default=None, ge=0),
-    limit: int | None = Query(default=None, ge=1, le=500),
+    request: Request,
     container: AtlasServiceContainer = Depends(get_container),
 ) -> Any:
     return container.conversation_service().list_conversations(
-        meeting_id=meeting_id, offset=offset, limit=limit
+        extra=dict(request.query_params)
     )
 
 
@@ -89,11 +81,11 @@ def get_conversation(
 @router.patch("/conversations/{conversation_id}")
 def patch_conversation(
     conversation_id: str,
-    body: ConversationPatch,
+    body: dict[str, Any] = Body(default_factory=dict),
     container: AtlasServiceContainer = Depends(get_container),
 ) -> Any:
     return container.conversation_service().patch_conversation(
-        conversation_id, payload=body.payload
+        conversation_id, payload=_baseline_payload(body)
     )
 
 
@@ -115,7 +107,7 @@ def delete_conversation(
 )
 def add_message(
     conversation_id: str,
-    body: MessageCreate,
+    body: dict[str, Any] = Body(default_factory=dict),
     container: AtlasServiceContainer = Depends(get_container),
 ) -> Any:
     """Explicit out-of-band message append.
@@ -124,7 +116,7 @@ def add_message(
     chat endpoints already persist the user message server-side.
     """
     return container.conversation_service().add_message(
-        conversation_id, payload=body.payload
+        conversation_id, payload=_baseline_payload(body)
     )
 
 
@@ -134,7 +126,7 @@ def add_message(
 @router.post("/conversations/{conversation_id}/chat")
 def chat(
     conversation_id: str,
-    body: ChatRequest,
+    body: dict[str, Any] = Body(default_factory=dict),
     container: AtlasServiceContainer = Depends(get_container),
 ) -> Any:
     """``POST /atlas/conversations/{id}/chat`` -> proxied to Zoom Agentic AI.
@@ -142,7 +134,9 @@ def chat(
     The baseline stores both the user message and the assistant reply; Atlas
     performs no local persistence.
     """
-    return container.chat_service().chat(conversation_id, payload=body.payload)
+    return container.chat_service().chat(
+        conversation_id, payload=_baseline_payload(body)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -151,7 +145,7 @@ def chat(
 @router.post("/conversations/{conversation_id}/chat/stream")
 def chat_stream(
     conversation_id: str,
-    body: ChatRequest,
+    body: dict[str, Any] = Body(default_factory=dict),
     container: AtlasServiceContainer = Depends(get_container),
 ) -> StreamingResponse:
     """``POST /atlas/conversations/{id}/chat/stream`` -> raw SSE passthrough.
@@ -173,7 +167,7 @@ def chat_stream(
     """
     try:
         iterator: Iterator[bytes] = container.chat_service().chat_stream(
-            conversation_id, payload=body.payload
+            conversation_id, payload=_baseline_payload(body)
         )
     except AtlasAPIError as exc:
         # Surface upstream transport / HTTP errors before streaming starts.

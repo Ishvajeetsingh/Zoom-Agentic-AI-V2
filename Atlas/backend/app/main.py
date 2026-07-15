@@ -9,7 +9,8 @@ Nothing here imports Zoom Agentic AI internals.
 """
 from __future__ import annotations
 
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse, PlainTextResponse
 
 from app.api.atlas import router as atlas_router
 from app.api.health import router as health_router
@@ -18,6 +19,7 @@ from app.api.meetings import router as meetings_router
 from app.api.questions import router as questions_router
 from app.api.retrieval import router as retrieval_router
 from app.api.transcripts import router as transcripts_router
+from app.clients.base_http_client import AtlasAPIError
 from app.core.config.settings import get_settings, reset_settings
 from app.core.logging import configure_logging
 
@@ -31,10 +33,21 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Standalone Atlas",
-        description="Thick client for the Zoom Agentic AI REST API. "
+        description="Thin client for the Zoom Agentic AI REST API. "
         "Does not import Zoom Agentic AI internals.",
         version="0.1.0",
     )
+
+    @app.exception_handler(AtlasAPIError)
+    def atlas_api_error_handler(
+        _request: Request, exc: AtlasAPIError
+    ) -> JSONResponse | PlainTextResponse:
+        status_code = exc.status_code or 502
+        if isinstance(exc.body, (dict, list)):
+            return JSONResponse(status_code=status_code, content=exc.body)
+        if exc.body is not None:
+            return PlainTextResponse(status_code=status_code, content=str(exc.body))
+        return PlainTextResponse(status_code=status_code, content=str(exc))
 
     app.include_router(health_router, tags=["health"])
     app.include_router(meetings_router)
