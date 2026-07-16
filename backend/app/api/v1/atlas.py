@@ -54,6 +54,55 @@ router = APIRouter()
 logger = get_logger(__name__)
 
 
+# Quiz-execution unifier.
+#
+# `atlas_intent_router.parse_request` correctly recognises most quiz phrasings
+# ("quiz", "test me", "generate quiz", "practice questions", ...) and routes
+# them to QUIZ_REQUEST, which always retrieves the already-generated meeting
+# questions via build_quiz_response (the LLM is NEVER asked to regenerate the
+# questions when stored questions exist).
+#
+# A small but important family of equivalent quiz phrasings — "Give 10
+# questions", "Give 10 questions from the meeting", "Generate MCQs",
+# "Generate 20 questions", bare "Questions" / "MCQs" — does NOT contain any
+# of the router's QUIZ_REQUEST keywords (the router keyword list lacks the
+# bare nouns "questions" and "mcq", and the multi-word keyword "generate
+# questions" is broken up by the count, e.g. "generate 20 questions").
+# parse_request therefore classifies those messages as GENERAL_QUESTION, and
+# _build_chat_inputs falls through to the general-LLM branch, which generates
+# a completely brand-new quiz instead of returning the stored meeting
+# questions.
+#
+# To unify the execution path WITHOUT modifying the existing parser /
+# topic / quantity logic, we re-classify GENERAL_QUESTION prompts that carry
+# a clear quiz signal ("questions"/"mcq"/"quiz"/...) to QUIZ_REQUEST right
+# after parse_request. The retrieved-count logic in build_quiz_response
+# (_parse_requested_count) independently extracts the requested number from
+# the raw message, so quantity behaves identically to the already-working
+# "Give 10 questions for the quiz" path. Downstream quiz execution is
+# otherwise unchanged: retrieval-first, LLM only as a no-stored-questions
+# fallback.
+#
+# The signal substrings below extend the router's QUIZ_REQUEST vocabulary
+# with exactly the two bare nouns that the router keyword list lacks. They
+# are matched ONLY when parse_request returned GENERAL_QUESTION (so any
+# message that won a more specific intent — SUMMARY via "summarize",
+# CONCEPT_EXPLANATION via "explain"/"what is", ACTION_ITEMS via "action
+# items", REVISION_REQUEST via "study"/"review", ... — keeps its original,
+# already-working routing).
+_QUIZ_FALLBACK_SIGNALS = ("questions", "mcq", "quiz", "test me", "practice questions")
+
+
+def _looks_like_quiz_request(user_message: str) -> bool:
+    """True when a general-question message actually asks for a quiz.
+
+    Substring match (case-insensitive) over the signals above. Kept narrow:
+    only the bare quiz nouns the router's QUIZ_REQUEST keyword list lacks.
+    """
+    msg = (user_message or "").lower()
+    return any(sig in msg for sig in _QUIZ_FALLBACK_SIGNALS)
+
+
 def _build_system_prompt(context_str: str) -> str:
     return (
         "You are Atlas, a Meeting Intelligence Assistant. You help users understand meetings, "
@@ -96,6 +145,21 @@ def _build_chat_inputs(
     intent = parsed.intent
     topic = parsed.topic
     quantity = parsed.quantity
+
+    # Quiz-execution unifier: a few equivalent quiz phrasings (notably
+    # "Give 10 questions", "Give 10 questions from the meeting", "Generate
+    # MCQs", "Generate 20 questions", bare "Questions" / "MCQs") do not match
+    # any router QUIZ_REQUEST keyword, so parse_request returns
+    # GENERAL_QUESTION, which would fall through to general-LLM quiz
+    # generation. Re-classify such a message to QUIZ_REQUEST so the SAME
+    # retrieval-first quiz branch used by "Give 10 questions for the quiz"
+    # runs for every quiz prompt. build_quiz_response independently
+    # re-extracts the requested count from the raw message, so quantity
+    # behaviour matches the already-working path exactly. Retrieval-first,
+    # never regenerate when stored questions exist.
+    if intent == AtlasIntent.GENERAL_QUESTION and _looks_like_quiz_request(payload.content):
+        intent = AtlasIntent.QUIZ_REQUEST
+
     logger.info(
         "atlas.intent_detected",
         extra={
