@@ -135,10 +135,33 @@ class ZoomIngestionService:
     @staticmethod
     def _find_transcript_file(recording_metadata: dict) -> dict | None:
         recording_files = recording_metadata.get("recording_files", []) or []
+        # Per-meeting VTT-before-SRT priority (Part 1): when a recording
+        # surfaces BOTH a VTT transcript and an SRT transcript, prefer the
+        # VTT (existing behaviour); only when no VTT is surfaced is an SRT
+        # transcript registered as a first-class transcript. Non-VTT,
+        # non-SRT formats (CHAT/CC/JSON/generic "transcript" by recording
+        # type) keep their original first-match preference and are NOT
+        # displaced by SRT — preserving existing prioritization.
+        first_match: dict | None = None
+        srt_match: dict | None = None
+        # VTT wins outright once found: short-circuit the scan (no
+        # downstream order can beat it, and the existing behaviour
+        # already returned the first scan match, so early-stop cannot
+        # introduce a regression for non-VTT/non-SRT formats since VTT
+        # would have won anyway).
         for file in recording_files:
-            if _looks_like_transcript(file):
-                return file
-        return None
+            if not _looks_like_transcript(file):
+                continue
+            if first_match is None:
+                first_match = file
+            fmt = _recording_format(file)
+            if fmt == "vtt":
+                first_match = file
+                srt_match = None
+                break
+            if fmt == "srt" and srt_match is None:
+                srt_match = file
+        return first_match or srt_match
 
 
 def _looks_like_transcript(file: dict[str, Any]) -> bool:
@@ -146,13 +169,27 @@ def _looks_like_transcript(file: dict[str, Any]) -> bool:
     extension = str(file.get("file_extension") or "").upper()
     recording_type = str(file.get("recording_type") or "").lower()
     return (
-        file_type in {"TRANSCRIPT", "CC", "VTT"}
-        or extension in {"VTT", "JSON"}
+        file_type in {"TRANSCRIPT", "CC", "VTT", "SRT"}
+        or extension in {"VTT", "JSON", "SRT"}
         or "transcript" in recording_type
     )
 
 
 def _source_format(file: dict[str, Any]) -> str | None:
+    extension = str(file.get("file_extension") or "").lower()
+    if extension:
+        return extension
+    file_type = str(file.get("file_type") or "").lower()
+    return file_type or None
+
+
+def _recording_format(file: dict[str, Any]) -> str | None:
+    """Normalise a discovered file's transcript format to one of
+    "vtt" / "srt" / "json" / None. Used by `_find_transcript_file` to
+    apply per-meeting VTT-before-SRT prioritization (identical rule to
+    TranscriptDiscoveryService and ZoomWebhookService). Falls back on
+    file_type when file_extension is missing.
+    """
     extension = str(file.get("file_extension") or "").lower()
     if extension:
         return extension

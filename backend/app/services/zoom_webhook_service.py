@@ -128,6 +128,15 @@ class ZoomWebhookService:
             if _looks_like_transcript(file)
         ]
 
+        # Per-meeting VTT-before-SRT priority (mirrors
+        # TranscriptDiscoveryService): when the recording surfaces BOTH a
+        # VTT and an SRT transcript file, only register the VTT one as a
+        # first-class transcript (existing behaviour). When ONLY an SRT
+        # transcript file is surfaced, register it. This prevents duplicate
+        # transcript rows for the same meeting/recording.
+        if any(_recording_format(f) == "vtt" for f in transcript_files):
+            transcript_files = [f for f in transcript_files if _recording_format(f) != "srt"]
+
         transcripts_enqueued = 0
         transcripts_skipped = 0
         run_ids: list[str] = []
@@ -249,13 +258,27 @@ def _looks_like_transcript(file: dict[str, Any]) -> bool:
     extension = str(file.get("file_extension") or "").upper()
     recording_type = str(file.get("recording_type") or "").lower()
     return (
-        file_type in {"TRANSCRIPT", "CC", "VTT"}
-        or extension in {"VTT", "JSON"}
+        file_type in {"TRANSCRIPT", "CC", "VTT", "SRT"}
+        or extension in {"VTT", "JSON", "SRT"}
         or "transcript" in recording_type
     )
 
 
 def _source_format(file: dict[str, Any]) -> str | None:
+    extension = str(file.get("file_extension") or "").lower()
+    if extension:
+        return extension
+    file_type = str(file.get("file_type") or "").lower()
+    return file_type or None
+
+
+def _recording_format(file: dict[str, Any]) -> str | None:
+    """Normalise a discovered file's transcript format to one of
+    "vtt" / "srt" / "json" / None. Used for the per-meeting
+    VTT-before-SRT prioritization in handle_recording_completed (identical
+    rule to TranscriptDiscoveryService). Falls back on file_type when the
+    file_extension is missing.
+    """
     extension = str(file.get("file_extension") or "").lower()
     if extension:
         return extension

@@ -207,8 +207,8 @@ def _looks_like_transcript(file: dict[str, Any]) -> bool:
     extension = str(file.get("file_extension") or "").upper()
     recording_type = str(file.get("recording_type") or "").lower()
     return (
-        file_type in {"TRANSCRIPT", "CC", "VTT"}
-        or extension in {"VTT", "JSON"}
+        file_type in {"TRANSCRIPT", "CC", "VTT", "SRT"}
+        or extension in {"VTT", "JSON", "SRT"}
         or "transcript" in recording_type
     )
 
