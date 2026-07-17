@@ -85,10 +85,10 @@ def upload_transcript(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No filename provided")
 
     extension = Path(file.filename).suffix.lstrip(".").lower()
-    if extension not in {"vtt", "json", "txt"}:
+    if extension not in {"vtt", "json", "txt", "srt"}:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Unsupported file type '.{extension}'. Supported: .vtt, .json, .txt",
+            detail=f"Unsupported file type '.{extension}'. Supported: .vtt, .json, .txt, .srt",
         )
 
     file_content = file.file.read()
@@ -103,6 +103,8 @@ def upload_transcript(
         file_type = "VTT"
     elif extension == "json":
         file_type = "JSON"
+    elif extension == "srt":
+        file_type = "SRT"
     else:
         file_type = "TXT"
 

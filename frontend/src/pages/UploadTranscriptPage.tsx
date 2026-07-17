@@ -192,14 +192,14 @@ export function UploadTranscriptPage() {
                 <>
                   <Upload className="upload-zone-icon" size={48} />
                   <p className="upload-zone-title">Drop transcript file here, or click to browse</p>
-                  <p className="upload-zone-subtitle">VTT, JSON, or TXT format</p>
-                  <p className="upload-zone-formats">Supported: .vtt, .json, .txt &middot; Max 50 MB</p>
+                  <p className="upload-zone-subtitle">VTT, JSON, SRT, or TXT format</p>
+                  <p className="upload-zone-formats">Supported: .vtt, .json, .srt, .txt &middot; Max 50 MB</p>
                 </>
               )}
               <input
                 id="transcript-file-input"
                 type="file"
-                accept=".vtt,.json,.txt"
+                accept=".vtt,.json,.srt,.txt"
                 style={{ display: "none" }}
                 onChange={(e) => { const f = e.target.files?.[0]; if (f) setFile(f); }}
               />

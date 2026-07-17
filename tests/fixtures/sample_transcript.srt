@@ -1,0 +1,35 @@
+1
+00:00:01,100 --> 00:00:04,000
+Alice: Welcome to the weekly sync.
+
+2
+00:00:05,500 --> 00:00:08,250
+Bob: We completed the API integration yesterday.
+
+3
+00:00:09,000 --> 00:00:12,000
+The release candidate is ready for testing.
+
+4
+00:00:09,000 --> 00:00:12,000
+The release candidate is ready for testing.
+
+bad cue without timestamp
+This block should be ignored.
+
+5
+00:00:13,000 --> 00:00:12,000
+Alice: This invalid range should be ignored.
+
+6
+00:00:15,000 --> 00:00:18,000
+Carol: Please share the QA checklist after this call.
+
+7
+00:00:19,000 --> 00:00:22,500
+A multi-line cue with a second line
+of the same caption.
+
+8
+00:00:23,000 --> 00:00:26,000
+Fuente de café naïve façade år.

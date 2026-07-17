@@ -89,10 +89,25 @@ class TranscriptDiscoveryService:
         recording_files = recording_metadata.get("recording_files", []) or []
         result.total_files_scanned = len(recording_files)
 
-        for file_data in recording_files:
-            if not _looks_like_transcript(file_data):
-                continue
+        # Per-meeting transcript-format priority (Part 1): when a Zoom
+        # recording surfaces BOTH a VTT transcript and an SRT transcript for
+        # the same meeting, VTT wins (existing behaviour) and the SRT file
+        # is dropped from this discovery pass. When ONLY an SRT transcript is
+        # surfaced, it is registered as a first-class transcript via the same
+        # code path. This rule deliberately operates at the per-meeting
+        # scope (and only on the current discovery metadata snapshot) so it
+        # never disturbs meeting-wide transcript rows already persisted from
+        # earlier discovery passes.
+        transcript_files = [f for f in recording_files if _looks_like_transcript(f)]
+        has_vtt = any(_recording_format(f) == "vtt" for f in transcript_files)
+        if has_vtt:
+            selected_transcript_files = [
+                f for f in transcript_files if _recording_format(f) != "srt"
+            ]
+        else:
+            selected_transcript_files = transcript_files
 
+        for file_data in selected_transcript_files:
             result.transcripts_found += 1
             try:
                 discovered = self._process_transcript_file(meeting, file_data)
@@ -233,10 +248,22 @@ def _looks_like_transcript(file: dict[str, Any]) -> bool:
     extension = str(file.get("file_extension") or "").upper()
     recording_type = str(file.get("recording_type") or "").lower()
     return (
-        file_type in {"TRANSCRIPT", "CC", "VTT"}
-        or extension in {"VTT", "JSON"}
+        file_type in {"TRANSCRIPT", "CC", "VTT", "SRT"}
+        or extension in {"VTT", "JSON", "SRT"}
         or "transcript" in recording_type
     )
+
+
+def _recording_format(file: dict[str, Any]) -> str | None:
+    """Normalise a discovered file's transcript format to one of
+    "vtt" / "srt" / "json" / None — used for per-meeting VTT-before-SRT
+    prioritization. Falls back on file_type when the extension is missing.
+    """
+    extension = str(file.get("file_extension") or "").lower()
+    if extension:
+        return extension
+    file_type = str(file.get("file_type") or "").lower()
+    return file_type or None
 
 
 def _source_format(file: dict[str, Any]) -> str | None:

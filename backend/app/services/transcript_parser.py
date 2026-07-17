@@ -9,8 +9,8 @@ logger = logging.getLogger(__name__)
 
 TIMESTAMP_SEPARATOR = "-->"
 TIMESTAMP_PATTERN = re.compile(
-    r"(?P<start>\d{1,2}:\d{2}:\d{2}\.\d{3}|\d{1,2}:\d{2}\.\d{3})\s*-->\s*"
-    r"(?P<end>\d{1,2}:\d{2}:\d{2}\.\d{3}|\d{1,2}:\d{2}\.\d{3})"
+    r"(?P<start>\d{1,2}:\d{2}:\d{2}[.,]\d{3}|\d{1,2}:\d{2}[.,]\d{3})\s*-->\s*"
+    r"(?P<end>\d{1,2}:\d{2}:\d{2}[.,]\d{3}|\d{1,2}:\d{2}[.,]\d{3})"
 )
 SPEAKER_PATTERN = re.compile(r"^(?P<speaker>[A-Za-z][A-Za-z0-9 ._'()-]{0,80}):\s*(?P<text>.+)$")
 VOICE_TAG_PATTERN = re.compile(r"^<v(?:\.[^ >]+)?\s+(?P<speaker>[^>]+)>(?P<text>.*?)(?:</v>)?$")
@@ -24,6 +24,10 @@ ZOOM_CHAT_LINE_PATTERN = re.compile(
 
 class VttParsingError(AppError):
     """Raised when a VTT file cannot be parsed into any usable segments."""
+
+
+class SrtParsingError(AppError):
+    """Raised when an SRT file cannot be parsed into any usable segments."""
 
 
 @dataclass(frozen=True)
@@ -55,86 +59,144 @@ class VttParser:
     def parse(self, content: str, *, source: str = "<memory>") -> list[ParsedTranscriptSegment]:
         if not content.strip():
             raise VttParsingError("VTT content is empty")
-
         normalized_content = content.replace("\r\n", "\n").replace("\r", "\n")
         blocks = re.split(r"\n\s*\n", normalized_content)
-        segments: list[ParsedTranscriptSegment] = []
-        seen_cues: set[tuple[float, float, str]] = set()
-
-        for block_index, block in enumerate(blocks, start=1):
-            lines = [line.strip() for line in block.split("\n") if line.strip()]
-            if not lines:
-                continue
-            if _is_header_or_note(lines):
-                continue
-
-            timestamp_index = _find_timestamp_line(lines)
-            if timestamp_index is None:
-                logger.warning(
-                    "vtt_parser.missing_timestamp",
-                    extra={"source": source, "block_index": block_index},
-                )
-                continue
-
-            timestamps = _parse_timestamp_line(lines[timestamp_index])
-            if timestamps is None:
-                logger.warning(
-                    "vtt_parser.malformed_timestamp",
-                    extra={"source": source, "block_index": block_index, "line": lines[timestamp_index]},
-                )
-                continue
-
-            text_lines = lines[timestamp_index + 1 :]
-            if not text_lines:
-                logger.warning(
-                    "vtt_parser.empty_cue",
-                    extra={"source": source, "block_index": block_index},
-                )
-                continue
-
-            speaker, text = _extract_speaker_and_text(text_lines)
-            if not text:
-                logger.warning(
-                    "vtt_parser.empty_text_after_cleanup",
-                    extra={"source": source, "block_index": block_index},
-                )
-                continue
-
-            start_time, end_time = timestamps
-            if end_time < start_time:
-                logger.warning(
-                    "vtt_parser.invalid_time_range",
-                    extra={"source": source, "block_index": block_index},
-                )
-                continue
-
-            cue_key = (start_time, end_time, text)
-            if cue_key in seen_cues:
-                logger.info(
-                    "vtt_parser.duplicate_cue_skipped",
-                    extra={"source": source, "block_index": block_index},
-                )
-                continue
-            seen_cues.add(cue_key)
-
-            segments.append(
-                ParsedTranscriptSegment(
-                    start_time=start_time,
-                    end_time=end_time,
-                    speaker=speaker,
-                    text=text,
-                    sequence_number=len(segments) + 1,
-                )
-            )
-
-        if not segments:
-            raise VttParsingError(f"No valid transcript cues found in {source}")
-
-        logger.info(
-            "vtt_parser.completed",
-            extra={"source": source, "segment_count": len(segments)},
+        return _parse_cue_blocks(
+            blocks,
+            source=source,
+            error_cls=VttParsingError,
+            logger_component="vtt_parser",
         )
-        return segments
+
+
+class SrtParser:
+    """Parser for SubRip (.srt) transcripts.
+
+    SRT is structurally a near-twin of WebVTT: blocks are separated by blank
+    lines, each block carries an optional cue index, a `00:00:01,100 -->
+    00:00:05,000` timestamp line (note the COMMA fractional separator),
+    then one or more text lines. The only parser-level difference from VTT
+    is the fractional-seconds separator, which TIMESTAMP_PATTERN already
+    tolerates (it accepts both `.` and `,`). We therefore reuse the
+    VTT block-parsing logic verbatim through `_parse_cue_blocks`, so there
+    is exactly ONE cue-extraction pipeline for VTT and SRT — no duplicated
+    parsing logic.
+    """
+
+    def parse_file(self, path: str | Path) -> list[ParsedTranscriptSegment]:
+        file_path = Path(path)
+        if not file_path.exists():
+            raise SrtParsingError(f"SRT file does not exist: {file_path}")
+        content = file_path.read_text(encoding="utf-8-sig", errors="replace")
+        return self.parse(content, source=str(file_path))
+
+    def parse(self, content: str, *, source: str = "<memory>") -> list[ParsedTranscriptSegment]:
+        if not content.strip():
+            raise SrtParsingError("SRT content is empty")
+        normalized_content = content.replace("\r\n", "\n").replace("\r", "\n")
+        blocks = re.split(r"\n\s*\n", normalized_content)
+        return _parse_cue_blocks(
+            blocks,
+            source=source,
+            error_cls=SrtParsingError,
+            logger_component="srt_parser",
+        )
+
+
+def _parse_cue_blocks(
+    blocks: list[str],
+    *,
+    source: str,
+    error_cls: type[AppError],
+    logger_component: str,
+) -> list[ParsedTranscriptSegment]:
+    """Shared cue extraction for VTT and SRT.
+
+    Both formats share block separation (one or more blank lines), header
+    skipping (WEBVTT / NOTE / STYLE), cue-index tolerance (lines before the
+    timestamp line are ignored), the `-->` timestamp separator, the speaker
+    label `Speaker: text` convention, voice-tag stripping, duplicate-cue
+    suppression, and invalid-time-range rejection. The only
+    format-specific detail — the fractional-seconds separator — is already
+    handled by TIMESTAMP_PATTERN, which accepts both `.` (VTT) and `,` (SRT).
+    """
+    segments: list[ParsedTranscriptSegment] = []
+    seen_cues: set[tuple[float, float, str]] = set()
+
+    for block_index, block in enumerate(blocks, start=1):
+        lines = [line.strip() for line in block.split("\n") if line.strip()]
+        if not lines:
+            continue
+        if _is_header_or_note(lines):
+            continue
+
+        timestamp_index = _find_timestamp_line(lines)
+        if timestamp_index is None:
+            logger.warning(
+                f"{logger_component}.missing_timestamp",
+                extra={"source": source, "block_index": block_index},
+            )
+            continue
+
+        timestamps = _parse_timestamp_line(lines[timestamp_index])
+        if timestamps is None:
+            logger.warning(
+                f"{logger_component}.malformed_timestamp",
+                extra={"source": source, "block_index": block_index, "line": lines[timestamp_index]},
+            )
+            continue
+
+        text_lines = lines[timestamp_index + 1 :]
+        if not text_lines:
+            logger.warning(
+                f"{logger_component}.empty_cue",
+                extra={"source": source, "block_index": block_index},
+            )
+            continue
+
+        speaker, text = _extract_speaker_and_text(text_lines)
+        if not text:
+            logger.warning(
+                f"{logger_component}.empty_text_after_cleanup",
+                extra={"source": source, "block_index": block_index},
+            )
+            continue
+
+        start_time, end_time = timestamps
+        if end_time < start_time:
+            logger.warning(
+                f"{logger_component}.invalid_time_range",
+                extra={"source": source, "block_index": block_index},
+            )
+            continue
+
+        cue_key = (start_time, end_time, text)
+        if cue_key in seen_cues:
+            logger.info(
+                f"{logger_component}.duplicate_cue_skipped",
+                extra={"source": source, "block_index": block_index},
+            )
+            continue
+        seen_cues.add(cue_key)
+
+        segments.append(
+            ParsedTranscriptSegment(
+                start_time=start_time,
+                end_time=end_time,
+                speaker=speaker,
+                text=text,
+                sequence_number=len(segments) + 1,
+            )
+        )
+
+    if not segments:
+        raise error_cls(f"No valid transcript cues found in {source}")
+
+    logger.info(
+        f"{logger_component}.completed",
+        extra={"source": source, "segment_count": len(segments)},
+    )
+    return segments
 
 
 def _is_header_or_note(lines: list[str]) -> bool:
@@ -157,7 +219,10 @@ def _parse_timestamp_line(line: str) -> tuple[float, float] | None:
 
 
 def _timestamp_to_seconds(value: str) -> float:
-    parts = value.split(":")
+    # Both VTT (`.`) and SRT (`,`) fractional-seconds separators are valid.
+    # Normalize the SubRip comma to a dot before parsing so float() copes.
+    normalized = value.replace(",", ".")
+    parts = normalized.split(":")
     if len(parts) == 3:
         hours = int(parts[0])
         minutes = int(parts[1])

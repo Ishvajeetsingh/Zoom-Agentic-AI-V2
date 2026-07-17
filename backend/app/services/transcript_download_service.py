@@ -226,7 +226,7 @@ class TranscriptDownloadService:
         extension = (transcript.file_extension or transcript.source_format or "vtt").lower()
         if extension.startswith("."):
             extension = extension[1:]
-        if extension not in {"vtt", "json", "txt"}:
+        if extension not in {"vtt", "json", "txt", "srt"}:
             extension = "vtt"
 
         identifier = transcript.zoom_file_id or str(transcript.id)
@@ -245,7 +245,7 @@ def _looks_like_transcript(file: dict) -> bool:
     file_type = str(file.get("file_type") or "").upper()
     extension = str(file.get("file_extension") or "").upper()
     recording_type = str(file.get("recording_type") or "").lower()
-    return file_type in {"TRANSCRIPT", "CC", "VTT"} or extension == "VTT" or "transcript" in recording_type
+    return file_type in {"TRANSCRIPT", "CC", "VTT", "SRT"} or extension in {"VTT", "SRT"} or "transcript" in recording_type
 
 
 def _source_format(file: dict) -> str | None:

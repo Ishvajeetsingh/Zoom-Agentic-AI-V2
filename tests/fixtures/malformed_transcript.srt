@@ -1,0 +1,5 @@
+This file has no valid SRT cues.
+
+Just prose.
+
+No timestamps anywhere.

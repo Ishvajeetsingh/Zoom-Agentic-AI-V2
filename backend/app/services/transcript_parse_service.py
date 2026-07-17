@@ -9,6 +9,8 @@ from app.core.logging import get_logger
 from app.db.repositories import transcripts
 from app.services.transcript_parser import (
     ParsedTranscriptSegment,
+    SrtParser,
+    SrtParsingError,
     VttParser,
     VttParsingError,
     ZoomChatParser,
@@ -37,17 +39,38 @@ class TranscriptParseService:
         self,
         db: Session,
         vtt_parser: VttParser | None = None,
+        srt_parser: SrtParser | None = None,
         chat_parser: ZoomChatParser | None = None,
     ) -> None:
         self.db = db
         self.vtt_parser = vtt_parser or VttParser()
+        self.srt_parser = srt_parser or SrtParser()
         self.chat_parser = chat_parser or ZoomChatParser()
 
-    def _select_parser(self, raw_path: Path):
+    def _select_parser(self, raw_path: Path, transcript=None):
+        # Prefer the format recorded at upload/discovery time: the source
+        # format (e.g. "vtt", "srt") or the file_extension (e.g. "vtt",
+        # "srt") both carry the format identity. SRT files are dispatched
+        # to SrtParser; everything else is content-sniffed as before to
+        # preserve the existing VTT/Zoom-chat auto-detection behaviour.
+        declared_format = self._declared_format(transcript)
+        if declared_format == "srt":
+            return self.srt_parser
+
         content = raw_path.read_text(encoding="utf-8-sig", errors="replace")
         if detect_zoom_chat_format(content):
             return self.chat_parser
         return self.vtt_parser
+
+    @staticmethod
+    def _declared_format(transcript) -> str | None:
+        if transcript is None:
+            return None
+        for attr in ("source_format", "file_extension"):
+            value = getattr(transcript, attr, None)
+            if value:
+                return str(value).lower()
+        return None
 
     def parse_transcript(self, transcript_id: uuid.UUID) -> TranscriptParseResult:
         transcript = transcripts.get_by_id(self.db, transcript_id)
@@ -70,14 +93,14 @@ class TranscriptParseService:
         )
 
         try:
-            parser = self._select_parser(raw_path)
+            parser = self._select_parser(raw_path, transcript)
             parsed_segments = parser.parse_file(raw_path)
             segment_dicts = [segment.as_dict() for segment in parsed_segments]
             segment_count = transcripts.replace_segments(self.db, transcript, segment_dicts)
             word_count = _count_words(parsed_segments)
             transcripts.mark_parsed(self.db, transcript, segment_count=segment_count, word_count=word_count)
             self.db.commit()
-        except (OSError, VttParsingError, ZoomChatParsingError, ValueError) as exc:
+        except (OSError, VttParsingError, SrtParsingError, ZoomChatParsingError, ValueError) as exc:
             self.db.rollback()
             transcript = transcripts.get_by_id(self.db, transcript_id)
             if transcript is not None:
