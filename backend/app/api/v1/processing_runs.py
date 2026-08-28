@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db
+from app.api.deps import block_in_public_demo, get_db
 from app.core.errors import ExternalServiceError
 from app.core.logging import get_logger
 from app.db.repositories import failures as failure_repo
@@ -33,7 +33,11 @@ logger = get_logger(__name__)
 _queue_service = JobQueueService()
 
 
-@router.get("", response_model=ProcessingRunListOut)
+@router.get(
+    "",
+    response_model=ProcessingRunListOut,
+    dependencies=[Depends(block_in_public_demo)],
+)
 def list_processing_runs(
     transcript_id: uuid.UUID | None = Query(None),
     meeting_id: uuid.UUID | None = Query(None),
@@ -71,7 +75,11 @@ def get_queue_metrics(
     return metrics_repo.get_queue_metrics(db, hours=hours)
 
 
-@router.get("/{run_id}", response_model=ProcessingRunDetailOut)
+@router.get(
+    "/{run_id}",
+    response_model=ProcessingRunDetailOut,
+    dependencies=[Depends(block_in_public_demo)],
+)
 def get_processing_run(
     run_id: uuid.UUID,
     db: Session = Depends(get_db),
@@ -85,7 +93,11 @@ def get_processing_run(
     return detail
 
 
-@router.get("/{run_id}/status", response_model=ProcessingRunStatusOut)
+@router.get(
+    "/{run_id}/status",
+    response_model=ProcessingRunStatusOut,
+    dependencies=[Depends(block_in_public_demo)],
+)
 def get_processing_run_status(
     run_id: uuid.UUID,
     db: Session = Depends(get_db),
@@ -96,7 +108,11 @@ def get_processing_run_status(
     return ProcessingRunStatusOut.model_validate(run)
 
 
-@router.get("/{run_id}/failures", response_model=list)
+@router.get(
+    "/{run_id}/failures",
+    response_model=list,
+    dependencies=[Depends(block_in_public_demo)],
+)
 def get_processing_run_failures(
     run_id: uuid.UUID,
     db: Session = Depends(get_db),
@@ -108,7 +124,12 @@ def get_processing_run_failures(
     return [ProcessingFailureOut.model_validate(f) for f in failures]
 
 
-@router.post("", response_model=ProcessingRunResultOut, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=ProcessingRunResultOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(block_in_public_demo)],
+)
 def create_and_run_processing(
     body: ProcessingRunCreate,
     db: Session = Depends(get_db),
@@ -146,7 +167,12 @@ def create_and_run_processing(
     return ProcessingRunResultOut.model_validate(run)
 
 
-@router.post("/enqueue", response_model=EnqueueResultOut, status_code=status.HTTP_202_ACCEPTED)
+@router.post(
+    "/enqueue",
+    response_model=EnqueueResultOut,
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(block_in_public_demo)],
+)
 def enqueue_processing_run(
     body: ProcessingRunEnqueue,
     db: Session = Depends(get_db),
@@ -173,7 +199,12 @@ def enqueue_processing_run(
     return EnqueueResultOut.model_validate(result)
 
 
-@router.post("/enqueue/batch", response_model=BatchEnqueueResponse, status_code=status.HTTP_202_ACCEPTED)
+@router.post(
+    "/enqueue/batch",
+    response_model=BatchEnqueueResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(block_in_public_demo)],
+)
 def batch_enqueue_processing_runs(
     body: BatchEnqueueRequest,
     db: Session = Depends(get_db),
@@ -200,7 +231,12 @@ def batch_enqueue_processing_runs(
     )
 
 
-@router.post("/{run_id}/retry", response_model=EnqueueResultOut, status_code=status.HTTP_202_ACCEPTED)
+@router.post(
+    "/{run_id}/retry",
+    response_model=EnqueueResultOut,
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(block_in_public_demo)],
+)
 def retry_processing_run(
     run_id: uuid.UUID,
     db: Session = Depends(get_db),
@@ -220,7 +256,11 @@ def retry_processing_run(
     return EnqueueResultOut.model_validate(result)
 
 
-@router.post("/{run_id}/cancel", status_code=status.HTTP_200_OK)
+@router.post(
+    "/{run_id}/cancel",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(block_in_public_demo)],
+)
 def cancel_processing_run(
     run_id: uuid.UUID,
     db: Session = Depends(get_db),
@@ -240,7 +280,11 @@ def cancel_processing_run(
     return {"run_id": str(run_id), "status": "cancelled"}
 
 
-@router.post("/workers/start", status_code=status.HTTP_200_OK)
+@router.post(
+    "/workers/start",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(block_in_public_demo)],
+)
 def start_workers(
     num_workers: int = Query(2, ge=1, le=10),
     poll_interval: float = Query(5.0, ge=1.0, le=60.0),
@@ -249,7 +293,11 @@ def start_workers(
     return {"status": "started", "num_workers": num_workers, "poll_interval": poll_interval}
 
 
-@router.post("/workers/stop", status_code=status.HTTP_200_OK)
+@router.post(
+    "/workers/stop",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(block_in_public_demo)],
+)
 def stop_workers() -> dict:
     _queue_service.stop_workers()
     return {"status": "stopped"}

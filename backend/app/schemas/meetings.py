@@ -21,6 +21,33 @@ class MeetingListItem(BaseModel):
 
     model_config = {"from_attributes": True}
 
+class PublicMeetingListItem(BaseModel):
+    """
+    Safe meeting metadata exposed by the public portfolio demo.
+
+    Intentionally excludes:
+    - Zoom meeting ID
+    - Zoom UUID
+    - Zoom account ID
+    - host ID
+    - host email
+    - participant information
+    - transcript contents
+    """
+
+    id: uuid.UUID
+    source: str
+    topic: str | None = None
+    start_time: datetime | None = None
+    duration_minutes: int | None = None
+
+    model_config = {"from_attributes": True}
+
+class PublicMeetingListOut(BaseModel):
+    items: list[PublicMeetingListItem]
+    total: int
+    offset: int
+    limit: int    
 
 class MeetingListOut(BaseModel):
     items: list[MeetingListItem]

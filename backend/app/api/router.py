@@ -1,5 +1,6 @@
-from fastapi import APIRouter
-from app.api.v1 import ollama
+from fastapi import APIRouter, Depends
+
+from app.api.deps import block_in_public_demo
 
 from app.api.v1 import (
     atlas,
@@ -9,6 +10,7 @@ from app.api.v1 import (
     insights,
     meetings,
     metrics,
+    ollama,
     processing_runs,
     questions,
     sync,
@@ -18,28 +20,183 @@ from app.api.v1 import (
     zoom_accounts,
 )
 
+
 api_router = APIRouter()
-api_router.include_router(health.router, tags=["health"])
-api_router.include_router(webhooks.router, prefix="/webhooks", tags=["webhooks"])
-api_router.include_router(zoom.router, prefix="/zoom", tags=["zoom"])
-api_router.include_router(meetings.router, prefix="/meetings", tags=["meetings"])
-api_router.include_router(transcripts.router, prefix="/transcripts", tags=["transcripts"])
-api_router.include_router(insights.router, prefix="/transcripts", tags=["insights"])
-api_router.include_router(processing_runs.router, prefix="/processing-runs", tags=["processing-runs"])
-api_router.include_router(questions.router, prefix="/questions", tags=["questions"])
-api_router.include_router(metrics.router, prefix="/metrics", tags=["metrics"])
-api_router.include_router(exports.router, prefix="/exports", tags=["exports"])
-api_router.include_router(zoom_accounts.router, prefix="/zoom-accounts", tags=["zoom-accounts"])
-api_router.include_router(sync.router, prefix="/sync", tags=["sync"])
-api_router.include_router(atlas.router, prefix="/atlas", tags=["atlas"])
-api_router.include_router(ollama.router)
 
-# Atlas-facing REST proxy for the future standalone Atlas deployment.
-# Mounted at the v1 root because its routes use absolute paths
-# (``/retrieval/search``, ``/meetings/{id}/ranked-questions``,
-# ``/transcripts/{id}/ranked-questions``) that already live under the
-# existing `/api/v1` URL space. No routes collide with existing routers,
-# and no behaviour of the integrated Atlas is changed — this only adds
-# thin HTTP wrappers around already-existing services.
-api_router.include_router(atlas_proxy.router, tags=["atlas-proxy"])
 
+# ============================================================
+# SAFE / PUBLIC ROUTES
+# ============================================================
+
+# Basic application health
+api_router.include_router(
+    health.router,
+    tags=["health"],
+)
+
+# Safe meeting list/details will be restricted separately.
+# We keep this router available because the public portfolio
+# needs meeting metadata for the populated Meetings page.
+api_router.include_router(
+    meetings.router,
+    prefix="/meetings",
+    tags=["meetings"],
+)
+
+# Aggregate dashboard metrics.
+api_router.include_router(
+    metrics.router,
+    prefix="/metrics",
+    tags=["metrics"],
+)
+
+# Processing runs contain useful portfolio/dashboard information.
+# Individual sensitive fields/actions will be restricted separately.
+api_router.include_router(
+    processing_runs.router,
+    prefix="/processing-runs",
+    tags=["processing-runs"],
+)
+
+# Ollama/cloud-model status.
+api_router.include_router(
+    ollama.router,
+)
+
+
+# ============================================================
+# PRIVATE ROUTES
+#
+# These continue to work normally when:
+#
+#     PUBLIC_DEMO_MODE=false
+#
+# But every endpoint below returns HTTP 403 when:
+#
+#     PUBLIC_DEMO_MODE=true
+# ============================================================
+
+
+# ------------------------------------------------------------
+# Transcripts
+# ------------------------------------------------------------
+
+api_router.include_router(
+    transcripts.router,
+    prefix="/transcripts",
+    tags=["transcripts"],
+    dependencies=[Depends(block_in_public_demo)],
+)
+
+
+# ------------------------------------------------------------
+# Transcript-derived insights
+# ------------------------------------------------------------
+
+api_router.include_router(
+    insights.router,
+    prefix="/transcripts",
+    tags=["insights"],
+    dependencies=[Depends(block_in_public_demo)],
+)
+
+
+# ------------------------------------------------------------
+# Generated questions
+# ------------------------------------------------------------
+
+api_router.include_router(
+    questions.router,
+    prefix="/questions",
+    tags=["questions"],
+    dependencies=[Depends(block_in_public_demo)],
+)
+
+
+# ------------------------------------------------------------
+# Exports
+# ------------------------------------------------------------
+
+api_router.include_router(
+    exports.router,
+    prefix="/exports",
+    tags=["exports"],
+    dependencies=[Depends(block_in_public_demo)],
+)
+
+
+# ------------------------------------------------------------
+# Zoom ingestion / discovery / orchestration
+# ------------------------------------------------------------
+
+api_router.include_router(
+    zoom.router,
+    prefix="/zoom",
+    tags=["zoom"],
+    dependencies=[Depends(block_in_public_demo)],
+)
+
+
+# ------------------------------------------------------------
+# Zoom accounts
+#
+# We do NOT expose real Zoom account records in portfolio mode.
+# The frontend will later display a harmless demo representation.
+# ------------------------------------------------------------
+
+api_router.include_router(
+    zoom_accounts.router,
+    prefix="/zoom-accounts",
+    tags=["zoom-accounts"],
+    dependencies=[Depends(block_in_public_demo)],
+)
+
+
+# ------------------------------------------------------------
+# Zoom synchronization
+# ------------------------------------------------------------
+
+api_router.include_router(
+    sync.router,
+    prefix="/sync",
+    tags=["sync"],
+    dependencies=[Depends(block_in_public_demo)],
+)
+
+
+# ------------------------------------------------------------
+# Zoom webhooks
+# ------------------------------------------------------------
+
+api_router.include_router(
+    webhooks.router,
+    prefix="/webhooks",
+    tags=["webhooks"],
+    dependencies=[Depends(block_in_public_demo)],
+)
+
+
+# ------------------------------------------------------------
+# Atlas
+#
+# Atlas can indirectly reveal transcript content through
+# retrieval/chat, so it is disabled in public portfolio mode.
+# ------------------------------------------------------------
+
+api_router.include_router(
+    atlas.router,
+    prefix="/atlas",
+    tags=["atlas"],
+    dependencies=[Depends(block_in_public_demo)],
+)
+
+
+# ------------------------------------------------------------
+# Atlas REST proxy / retrieval
+# ------------------------------------------------------------
+
+api_router.include_router(
+    atlas_proxy.router,
+    tags=["atlas-proxy"],
+    dependencies=[Depends(block_in_public_demo)],
+)
