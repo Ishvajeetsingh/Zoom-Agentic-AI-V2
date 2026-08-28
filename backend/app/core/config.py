@@ -12,6 +12,10 @@ class Settings(BaseSettings):
     app_host: str = "127.0.0.1"
     app_port: int = 8000
     app_log_level: str = "INFO"
+        # Public portfolio/demo mode.
+    # False = normal full application.
+    # True  = public read-only portfolio restrictions.
+    public_demo_mode: bool = False
 
     database_url: str = Field(
         default="postgresql+psycopg://postgres:postgres@localhost:5432/zoom_agentic_ai"
