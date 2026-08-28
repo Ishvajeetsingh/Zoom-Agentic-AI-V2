@@ -43,4 +43,7 @@ transcripts/
 # Coverage
 .coverage
 htmlcov/
+
 .vite/
+
+portfolio_meetings.json
