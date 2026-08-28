@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+
 import {
   LayoutDashboard,
   Compass,
@@ -14,6 +15,7 @@ import {
   Users,
   RefreshCw,
 } from "lucide-react";
+import { getOllamaStatus } from "../../api/ollama";
 
 interface NavItem {
   label: string;
@@ -58,21 +60,38 @@ export function Sidebar() {
   }, []);
 
   useEffect(() => {
-    const check = async () => {
-      try {
-        const res = await fetch("http://localhost:11434/api/tags");
-        const data = await res.json();
+  const check = async () => {
+    try {
+      const data = await getOllamaStatus();
+
+      if (data.online) {
         setOllamaOnline(true);
-        const qwen = data.models?.find((m: { name: string }) => m.name.startsWith("qwen3"));
-        setPrimaryModel(qwen ? qwen.name : data.models?.[0]?.name ?? "N/A");
-      } catch {
+
+        const qwen = data.models?.find((m) =>
+          m.name.startsWith("qwen3")
+        );
+
+        setPrimaryModel(
+          qwen
+            ? qwen.name
+            : data.models?.[0]?.name ?? "N/A"
+        );
+      } else {
         setOllamaOnline(false);
+        setPrimaryModel("Unavailable");
       }
-    };
-    check();
-    const interval = setInterval(check, 30000);
-    return () => clearInterval(interval);
-  }, []);
+    } catch {
+      setOllamaOnline(false);
+      setPrimaryModel("Unavailable");
+    }
+  };
+
+  check();
+
+  const interval = setInterval(check, 30000);
+
+  return () => clearInterval(interval);
+}, []);
 
   const handleClick = (href: string) => {
     setCurrentHash(href);

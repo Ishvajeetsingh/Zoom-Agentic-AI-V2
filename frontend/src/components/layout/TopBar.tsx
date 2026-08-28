@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Zap } from "lucide-react";
+import { getOllamaStatus } from "../../api/ollama";
 
 export function TopBar() {
   const [ollamaStatus, setOllamaStatus] = useState<"online" | "offline">("offline");
@@ -7,17 +8,30 @@ export function TopBar() {
 
   useEffect(() => {
     const checkOllama = async () => {
-      try {
-        const res = await fetch("http://localhost:11434/api/tags");
-        const data = await res.json();
-        setOllamaStatus("online");
-        const qwen = data.models?.find((m: { name: string }) => m.name.startsWith("qwen3"));
-        setModelInfo(qwen ? qwen.name : data.models?.[0]?.name ?? "No model");
-      } catch {
-        setOllamaStatus("offline");
-        setModelInfo("Unavailable");
-      }
-    };
+  try {
+    const data = await getOllamaStatus();
+
+    if (data.online) {
+      setOllamaStatus("online");
+
+      const qwen = data.models?.find((m) =>
+        m.name.startsWith("qwen3")
+      );
+
+      setModelInfo(
+        qwen
+          ? qwen.name
+          : data.models?.[0]?.name ?? "No model"
+      );
+    } else {
+      setOllamaStatus("offline");
+      setModelInfo("Unavailable");
+    }
+  } catch {
+    setOllamaStatus("offline");
+    setModelInfo("Unavailable");
+  }
+};
     checkOllama();
     const interval = setInterval(checkOllama, 30000);
     return () => clearInterval(interval);

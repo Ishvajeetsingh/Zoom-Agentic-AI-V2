@@ -1,4 +1,5 @@
 from fastapi import APIRouter
+from app.api.v1 import ollama
 
 from app.api.v1 import (
     atlas,
@@ -31,6 +32,7 @@ api_router.include_router(exports.router, prefix="/exports", tags=["exports"])
 api_router.include_router(zoom_accounts.router, prefix="/zoom-accounts", tags=["zoom-accounts"])
 api_router.include_router(sync.router, prefix="/sync", tags=["sync"])
 api_router.include_router(atlas.router, prefix="/atlas", tags=["atlas"])
+api_router.include_router(ollama.router)
 
 # Atlas-facing REST proxy for the future standalone Atlas deployment.
 # Mounted at the v1 root because its routes use absolute paths
