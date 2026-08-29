@@ -245,12 +245,6 @@ async def upload_transcript(
         Depends(require_public_demo)
     ],
 )
-@router.post(
-    "/transcripts/{transcript_id}/pipeline",
-    dependencies=[
-        Depends(require_public_demo)
-    ],
-)
 def run_transcript_pipeline(
     transcript_id: uuid.UUID,
     db: Session = Depends(get_db),
