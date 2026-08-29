@@ -9,29 +9,25 @@ from fastapi import (
 )
 from sqlalchemy.orm import Session
 
-from app.api.deps import (
-    block_in_public_demo,
-    get_db,
-)
+from app.api.deps import get_db
 from app.core.config import settings
-from app.db.repositories import meetings as meeting_repo
+from app.db.repositories import (
+    meetings as meeting_repo,
+)
 from app.schemas.meetings import (
     MeetingDetailOut,
     MeetingListItem,
     MeetingListOut,
-    PublicMeetingListItem,
-    PublicMeetingListOut,
 )
 
 
 router = APIRouter()
 
 
-# ============================================================
-# MEETING LIST
-# ============================================================
-
-@router.get("")
+@router.get(
+    "",
+    response_model=MeetingListOut,
+)
 def list_meetings(
     offset: int = Query(
         0,
@@ -44,61 +40,45 @@ def list_meetings(
     ),
     order_by: str = Query(
         "created_at",
-        pattern="^(created_at|updated_at|start_time)$",
+        pattern=(
+            "^(created_at|"
+            "updated_at|"
+            "start_time)$"
+        ),
     ),
     order: str = Query(
         "asc",
         pattern="^(asc|desc)$",
     ),
     db: Session = Depends(get_db),
-):
-    """
-    Meeting list.
+) -> MeetingListOut:
 
-    Normal application:
-        Returns the complete MeetingListItem schema.
-
-    Public portfolio:
-        Returns only safe meeting metadata.
-    """
-
-    rows, total = meeting_repo.list_meetings(
-        db,
-        offset=offset,
-        limit=limit,
-        order_by=order_by,
-        order_desc=(order == "desc"),
+    # Public portfolio mode exposes only the
+    # sanitized Zoom meeting showcase.
+    #
+    # Historical source="upload" placeholders
+    # are intentionally excluded.
+    #
+    # Normal/full mode remains unchanged and
+    # returns meetings from all sources.
+    source_filter = (
+        "zoom"
+        if settings.public_demo_mode
+        else None
     )
 
-
-    # --------------------------------------------------------
-    # PUBLIC PORTFOLIO
-    # --------------------------------------------------------
-
-    if settings.public_demo_mode:
-
-        items = [
-            PublicMeetingListItem(
-                id=meeting.id,
-                source=meeting.source,
-                topic=meeting.topic,
-                start_time=meeting.start_time,
-                duration_minutes=meeting.duration_minutes,
-            )
-            for meeting in rows
-        ]
-
-        return PublicMeetingListOut(
-            items=items,
-            total=total,
+    rows, total = (
+        meeting_repo.list_meetings(
+            db,
             offset=offset,
             limit=limit,
+            order_by=order_by,
+            order_desc=(
+                order == "desc"
+            ),
+            source=source_filter,
         )
-
-
-    # --------------------------------------------------------
-    # NORMAL / PRIVATE APPLICATION
-    # --------------------------------------------------------
+    )
 
     items = [
         MeetingListItem.model_validate(
@@ -115,37 +95,38 @@ def list_meetings(
     )
 
 
-# ============================================================
-# MEETING DETAILS
-# ============================================================
-
 @router.get(
     "/{meeting_id}",
     response_model=MeetingDetailOut,
-    dependencies=[
-        Depends(block_in_public_demo)
-    ],
 )
 def get_meeting(
     meeting_id: uuid.UUID,
     db: Session = Depends(get_db),
 ) -> MeetingDetailOut:
-    """
-    Full meeting details.
 
-    Disabled completely in public portfolio mode because
-    the response may contain Zoom/account/host information.
-    """
+    # Meeting details can contain fields such
+    # as host/account identifiers and are not
+    # exposed by the public portfolio.
+    if settings.public_demo_mode:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Meeting details are protected "
+                "in the public portfolio demo."
+            ),
+        )
 
-    detail = meeting_repo.get_meeting_detail(
-        db,
-        meeting_id,
+    detail = (
+        meeting_repo.get_meeting_detail(
+            db,
+            meeting_id,
+        )
     )
 
     if detail is None:
-
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
+            status_code=
+                status.HTTP_404_NOT_FOUND,
             detail="Meeting not found",
         )
 

@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends
 from app.api.deps import block_in_public_demo
 
 from app.api.v1 import (
+    public_demo,
     atlas,
     atlas_proxy,
     exports,
@@ -41,6 +42,16 @@ api_router.include_router(
     meetings.router,
     prefix="/meetings",
     tags=["meetings"],
+)
+# Public portfolio interactive transcript demo.
+#
+# This router exposes only the explicitly approved
+# upload -> processing -> generated questions workflow.
+# The normal transcript API remains protected below.
+api_router.include_router(
+    public_demo.router,
+    prefix="/public-demo",
+    tags=["public-demo"],
 )
 
 # Aggregate dashboard metrics.

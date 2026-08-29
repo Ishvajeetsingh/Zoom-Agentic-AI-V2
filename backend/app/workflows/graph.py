@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from langgraph.graph import END, StateGraph
+from app.llm.provider import create_llm_client
 
 from app.core.config import Settings, settings
 from app.core.logging import get_logger
@@ -115,7 +116,7 @@ class QuestionGenerationWorkflow:
     ) -> None:
         self.db_session = db_session
         self.config = config or settings
-        self.ollama_client = ollama_client or OllamaApiClient(config=self.config)
+        self.ollama_client = ollama_client or create_llm_client(self.config)
         self.question_service = question_service or QuestionService(
             ollama_client=self.ollama_client,
             config=self.config,

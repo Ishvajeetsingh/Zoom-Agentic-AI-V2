@@ -5,6 +5,7 @@ using a single LLM call per chunk (separate from MCQ generation).
 """
 
 from __future__ import annotations
+from app.llm.provider import create_llm_client, get_generation_model
 
 import json
 import re
@@ -86,7 +87,7 @@ class LearningOutputService:
         config: Settings = settings,
     ) -> None:
         self.config = config
-        self.ollama = ollama_client or OllamaApiClient(config=config)
+        self.ollama = ollama_client or create_llm_client(config)
 
     def generate_from_chunk(
         self,

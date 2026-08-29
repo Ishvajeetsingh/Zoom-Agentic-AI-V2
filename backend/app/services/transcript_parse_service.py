@@ -11,6 +11,8 @@ from app.services.transcript_parser import (
     ParsedTranscriptSegment,
     SrtParser,
     SrtParsingError,
+    TxtParser,
+    TxtParsingError,
     VttParser,
     VttParsingError,
     ZoomChatParser,
@@ -36,30 +38,54 @@ class TranscriptParseResult:
 
 class TranscriptParseService:
     def __init__(
-        self,
-        db: Session,
-        vtt_parser: VttParser | None = None,
-        srt_parser: SrtParser | None = None,
-        chat_parser: ZoomChatParser | None = None,
+     self,
+     db: Session,
+     vtt_parser: VttParser | None = None,
+     srt_parser: SrtParser | None = None,
+     txt_parser: TxtParser | None = None,
+     chat_parser: ZoomChatParser | None = None,
     ) -> None:
-        self.db = db
-        self.vtt_parser = vtt_parser or VttParser()
-        self.srt_parser = srt_parser or SrtParser()
-        self.chat_parser = chat_parser or ZoomChatParser()
+     self.db = db
+     self.vtt_parser = vtt_parser or VttParser()
+     self.srt_parser = srt_parser or SrtParser()
+     self.txt_parser = txt_parser or TxtParser()
+     self.chat_parser = chat_parser or ZoomChatParser()
 
-    def _select_parser(self, raw_path: Path, transcript=None):
-        # Prefer the format recorded at upload/discovery time: the source
-        # format (e.g. "vtt", "srt") or the file_extension (e.g. "vtt",
-        # "srt") both carry the format identity. SRT files are dispatched
-        # to SrtParser; everything else is content-sniffed as before to
-        # preserve the existing VTT/Zoom-chat auto-detection behaviour.
+    def _select_parser(
+        self,
+        raw_path: Path,
+        transcript=None,
+    ):
         declared_format = self._declared_format(transcript)
-        if declared_format == "srt":
+
+        if declared_format in {
+            "srt",
+            ".srt",
+        }:
             return self.srt_parser
 
-        content = raw_path.read_text(encoding="utf-8-sig", errors="replace")
+        if declared_format in {
+            "txt",
+            ".txt",
+        }:
+            return self.txt_parser
+
+        if declared_format in {
+            "vtt",
+            ".vtt",
+        }:
+            return self.vtt_parser
+
+        content = raw_path.read_text(
+            encoding="utf-8-sig",
+            errors="replace",
+        )
+
         if detect_zoom_chat_format(content):
             return self.chat_parser
+
+        # Preserve the original fallback behavior
+        # for unknown/legacy transcript formats.
         return self.vtt_parser
 
     @staticmethod
@@ -100,7 +126,14 @@ class TranscriptParseService:
             word_count = _count_words(parsed_segments)
             transcripts.mark_parsed(self.db, transcript, segment_count=segment_count, word_count=word_count)
             self.db.commit()
-        except (OSError, VttParsingError, SrtParsingError, ZoomChatParsingError, ValueError) as exc:
+        except (
+    OSError,
+    VttParsingError,
+    SrtParsingError,
+    TxtParsingError,
+    ZoomChatParsingError,
+    ValueError,
+) as exc:
             self.db.rollback()
             transcript = transcripts.get_by_id(self.db, transcript_id)
             if transcript is not None:

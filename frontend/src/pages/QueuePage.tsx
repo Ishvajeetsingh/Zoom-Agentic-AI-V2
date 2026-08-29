@@ -287,16 +287,43 @@ export function QueuePage() {
   const avgDuration = queueMetrics?.avg_duration_seconds;
 
   const healthStatus = useMemo(() => {
-    if (!queueMetrics) return "unknown";
-    const sr = queueMetrics.success_rate;
-    const fl = queueMetrics.failed;
-    if (sr != null && sr >= 0.9 && fl === 0) return "healthy";
-    if (sr != null && sr >= 0.7) return "degraded";
-    return "unhealthy";
-  }, [queueMetrics]);
+  if (!queueMetrics) return "unknown";
 
-  const healthLabel: Record<string, string> = { healthy: "Healthy", degraded: "Degraded", unhealthy: "Unhealthy", unknown: "Unknown" };
-  const healthVariant: Record<string, string> = { healthy: "success", degraded: "warning", unhealthy: "error", unknown: "muted" };
+  // An empty queue is not unhealthy.
+  // It simply means no processing runs have been created yet.
+  if (total === 0) {
+    return "idle";
+  }
+
+  const sr = queueMetrics.success_rate;
+  const fl = queueMetrics.failed;
+
+  if (sr != null && sr >= 0.9 && fl === 0) {
+    return "healthy";
+  }
+
+  if (sr != null && sr >= 0.7) {
+    return "degraded";
+  }
+
+  return "unhealthy";
+}, [queueMetrics, total]);
+
+const healthLabel: Record<string, string> = {
+  healthy: "Healthy",
+  degraded: "Degraded",
+  unhealthy: "Unhealthy",
+  idle: "Idle · Ready",
+  unknown: "Unknown",
+};
+
+const healthVariant: Record<string, string> = {
+  healthy: "success",
+  degraded: "warning",
+  unhealthy: "error",
+  idle: "success",
+  unknown: "muted",
+};
 
   return (
     <AppShell>
@@ -536,7 +563,7 @@ export function QueuePage() {
                   message={
                     search || statusFilter !== "all"
                       ? "No runs match your filters. Try adjusting your search."
-                      : "No processing runs found. Process a meeting to create one."
+                      : "No processing runs yet. Upload a transcript to run the public AI processing demo."
                   }
                 />
               )}

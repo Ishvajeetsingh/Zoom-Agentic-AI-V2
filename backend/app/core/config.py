@@ -5,6 +5,17 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+    # LLM provider
+    # "ollama" = original/local project
+    # "groq"   = public cloud portfolio
+llm_provider: str = "ollama"
+
+groq_api_key: str | None = None
+groq_base_url: str = "https://api.groq.com/openai/v1"
+groq_model: str = "openai/gpt-oss-20b"
+groq_timeout_seconds: float = 120.0
+groq_retry_attempts: int = 2
+
 class Settings(BaseSettings):
     app_name: str = "Zoom Agentic AI"
     app_version: str = "0.1.0"
@@ -16,6 +27,8 @@ class Settings(BaseSettings):
     # False = normal full application.
     # True  = public read-only portfolio restrictions.
     public_demo_mode: bool = False
+        # Public portfolio upload controls.
+    public_demo_max_upload_bytes: int = 2 * 1024 * 1024
 
     database_url: str = Field(
         default="postgresql+psycopg://postgres:postgres@localhost:5432/zoom_agentic_ai"
@@ -36,6 +49,16 @@ class Settings(BaseSettings):
     zoom_oauth_retry_attempts: int = 3
     zoom_oauth_retry_backoff_seconds: float = 1.0
 
+        # LLM provider
+    # "ollama" keeps the original local project unchanged.
+    # "groq" is used by the cloud portfolio deployment.
+    llm_provider: str = "ollama"
+
+    groq_api_key: str | None = None
+    groq_base_url: str = "https://api.groq.com/openai/v1"
+    groq_model: str = "openai/gpt-oss-20b"
+    groq_timeout_seconds: float = 120.0
+    groq_retry_attempts: int = 2
     ollama_base_url: str = "http://localhost:11434"
     ollama_primary_model: str = "qwen3:8b"
     ollama_embedding_model: str = "nomic-embed-text"

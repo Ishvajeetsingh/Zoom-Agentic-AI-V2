@@ -43,7 +43,9 @@ transcripts/
 # Coverage
 .coverage
 htmlcov/
-
+# Local portfolio environment secrets
+backend/.env.portfolio.local
+frontend/.env.local
 .vite/
 
 portfolio_meetings.json

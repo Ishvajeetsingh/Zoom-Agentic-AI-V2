@@ -29,7 +29,8 @@ class VttParsingError(AppError):
 class SrtParsingError(AppError):
     """Raised when an SRT file cannot be parsed into any usable segments."""
 
-
+class TxtParsingError(AppError):
+    """Raised when a plain-text transcript cannot be parsed."""
 @dataclass(frozen=True)
 class ParsedTranscriptSegment:
     start_time: float
@@ -101,7 +102,129 @@ class SrtParser:
             error_cls=SrtParsingError,
             logger_component="srt_parser",
         )
+class TxtParser:
+    """
+    Parser for plain-text transcripts.
 
+    TXT transcripts do not contain reliable timestamps, so segments are
+    created from non-empty lines / paragraphs while preserving speaker
+    labels when present.
+
+    Synthetic sequential timestamps are used only to satisfy the common
+    ParsedTranscriptSegment representation. They do not represent real
+    recording timestamps.
+    """
+
+    def parse_file(
+        self,
+        path: str | Path,
+    ) -> list[ParsedTranscriptSegment]:
+        file_path = Path(path)
+
+        if not file_path.exists():
+            raise TxtParsingError(
+                f"TXT file does not exist: {file_path}"
+            )
+
+        content = file_path.read_text(
+            encoding="utf-8-sig",
+            errors="replace",
+        )
+
+        return self.parse(
+            content,
+            source=str(file_path),
+        )
+
+    def parse(
+        self,
+        content: str,
+        *,
+        source: str = "<memory>",
+    ) -> list[ParsedTranscriptSegment]:
+
+        if not content.strip():
+            raise TxtParsingError(
+                "TXT content is empty"
+            )
+
+        normalized = (
+            content
+            .replace("\r\n", "\n")
+            .replace("\r", "\n")
+        )
+
+        raw_blocks = re.split(
+            r"\n\s*\n|\n",
+            normalized,
+        )
+
+        segments: list[
+            ParsedTranscriptSegment
+        ] = []
+
+        for raw_block in raw_blocks:
+            line = raw_block.strip()
+
+            if not line:
+                continue
+
+            speaker, text = (
+                _extract_speaker_from_line(
+                    line
+                )
+            )
+
+            text = re.sub(
+                r"\s+",
+                " ",
+                text,
+            ).strip()
+
+            if not text:
+                continue
+
+            sequence_number = (
+                len(segments) + 1
+            )
+
+            # TXT contains no trustworthy timestamps.
+            # Sequential synthetic positions preserve ordering
+            # while allowing the existing downstream segment
+            # representation to remain unchanged.
+            start_time = float(
+                sequence_number - 1
+            )
+
+            end_time = float(
+                sequence_number
+            )
+
+            segments.append(
+                ParsedTranscriptSegment(
+                    start_time=start_time,
+                    end_time=end_time,
+                    speaker=speaker,
+                    text=text,
+                    sequence_number=sequence_number,
+                )
+            )
+
+        if not segments:
+            raise TxtParsingError(
+                f"No usable transcript text found in {source}"
+            )
+
+        logger.info(
+            "txt_parser.completed",
+            extra={
+                "source": source,
+                "segment_count":
+                    len(segments),
+            },
+        )
+
+        return segments
 
 def _parse_cue_blocks(
     blocks: list[str],

@@ -5,7 +5,7 @@ from the full transcript (all chunks concatenated) using a single LLM call.
 """
 
 from __future__ import annotations
-
+from app.llm.provider import create_llm_client, get_generation_model
 import json
 import re
 import uuid
@@ -153,7 +153,7 @@ class MeetingInsightsService:
     ) -> None:
         self.db = db
         self.config = config
-        self.ollama = ollama_client or OllamaApiClient(config=config)
+        self.ollama = ollama_client or create_llm_client(config)
 
     def synthesize(
         self,
@@ -188,7 +188,7 @@ class MeetingInsightsService:
         try:
             response = self.ollama.generate_json(
                 prompt,
-                model=model or self.config.ollama_primary_model,
+                model=model or get_generation_model(self.config),
                 system=MEETING_INSIGHTS_SYSTEM_PROMPT,
                 temperature=0.5,
                 max_tokens=self.config.synthesize_max_output_tokens,

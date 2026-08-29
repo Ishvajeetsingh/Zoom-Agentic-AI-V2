@@ -23,13 +23,7 @@ function setStep(steps: TimelineStep[], key: string, status: TimelineStep["statu
   );
 }
 
-function markPreviousCompleted(steps: TimelineStep[], upToKey: string): TimelineStep[] {
-  let found = false;
-  return steps.map((s) => {
-    if (s.key === upToKey) found = true;
-    return !found && s.status !== "failed" ? { ...s, status: "completed" as const } : s;
-  });
-}
+
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -83,35 +77,27 @@ export function UploadTranscriptPage() {
 
   const runPipelineSteps = async (transcriptId: string) => {
     const stepKeys = ["parse", "clean", "chunk", "generate", "generate_learning_outputs", "synthesize"];
-    const stepLabels: Record<string, string> = {
-      parse: "Extracting speaker segments...",
-      clean: "Normalizing and cleaning...",
-      chunk: "Building semantic chunks...",
-      generate: "Running LLM question generation...",
-      generate_learning_outputs: "Generating learning outputs...",
-      synthesize: "Synthesizing insights...",
-    };
+    
 
     let steps = PIPELINE_STEPS.map((s) => ({ ...s }));
-    let currentIdx = 0;
+    steps = PIPELINE_STEPS.map(
+  (step, index) => ({
+    ...step,
+    status:
+      index === 0
+        ? ("running" as const)
+        : ("waiting" as const),
+  })
+);
 
-    steps = setStep(steps, stepKeys[0], "running", stepLabels[stepKeys[0]]);
-    setPipelineSteps([...steps]);
-
-    const advanceInterval = setInterval(() => {
-      if (currentIdx < stepKeys.length - 1) {
-        steps = markPreviousCompleted(steps, stepKeys[currentIdx]);
-        steps = setStep(steps, stepKeys[currentIdx], "completed");
-        currentIdx++;
-        steps = setStep(steps, stepKeys[currentIdx], "running", stepLabels[stepKeys[currentIdx]]);
-        setPipelineSteps([...steps]);
-      }
-    }, 2000);
+setPipelineSteps([
+  ...steps,
+]);
 
     try {
       const result: PipelineResponse = await runPipeline(transcriptId);
 
-      clearInterval(advanceInterval);
+      
 
       const completedKeys = new Set(
         result.steps.filter((s) => s.status === "completed").map((s) => s.step)
@@ -149,7 +135,7 @@ export function UploadTranscriptPage() {
         ]);
       }
     } catch (err) {
-      clearInterval(advanceInterval);
+      
       const msg = err instanceof Error ? err.message : "Pipeline failed";
       const failedStep = steps.find((s) => s.status === "running");
       if (failedStep) {

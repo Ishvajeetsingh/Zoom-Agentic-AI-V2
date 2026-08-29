@@ -7,6 +7,7 @@ be added later as a separate orchestration layer.
 """
 
 from __future__ import annotations
+from app.llm.provider import create_llm_client, get_generation_model
 
 import json
 import re
@@ -212,7 +213,7 @@ class QuestionService:
         config: Settings = settings,
     ) -> None:
         self.config = config
-        self.ollama = ollama_client or OllamaApiClient(config=config)
+        self.ollama = ollama_client or create_llm_client(config)
 
     _MIN_QUESTIONS_PER_CHUNK = 2
     _MAX_QUESTIONS_PER_CHUNK = 5
@@ -245,7 +246,7 @@ class QuestionService:
         try:
             response = self.ollama.generate_json(
                 concept_prompt,
-                model=model or self.config.ollama_primary_model,
+                model=model or get_generation_model(self.config),
                 system=CONCEPT_EXTRACTION_PROMPT,
                 temperature=0.3,
                 max_tokens=2048,
@@ -635,7 +636,7 @@ class QuestionService:
         try:
             response = self.ollama.generate(
                 review_prompt,
-                model=model or self.config.ollama_primary_model,
+                model=model or get_generation_model(self.config),
                 system=REVIEW_SYSTEM_PROMPT,
                 temperature=0.3,
                 max_tokens=self.config.max_chunk_tokens,
@@ -780,7 +781,7 @@ class QuestionService:
                 meeting_id=uuid.uuid4(),
                 questions=[],
                 total_questions=0,
-                model_used=model or self.config.ollama_primary_model,
+                model_used=model or get_generation_model(self.config),
             )
 
         word_count = len(chunk_text.split())
@@ -820,7 +821,7 @@ class QuestionService:
             try:
                 response = self.ollama.generate(
                     prompt,
-                    model=model or self.config.ollama_primary_model,
+                    model=model or get_generation_model(self.config),
                     system=MCQ_SYSTEM_PROMPT,
                     temperature=0.7,
                     max_tokens=self.config.max_chunk_tokens,
@@ -920,7 +921,7 @@ class QuestionService:
             meeting_id=uuid.uuid4(),
             questions=final_questions,
             total_questions=len(final_questions),
-            model_used=final_response.model if final_response else (model or self.config.ollama_primary_model),
+            model_used=final_response.model if final_response else (model or get_generation_model(self.config)),
             total_prompt_tokens=final_response.prompt_tokens if final_response else None,
             total_completion_tokens=final_response.completion_tokens if final_response else None,
             total_duration_seconds=final_response.total_duration_seconds if final_response else None,
@@ -1190,7 +1191,7 @@ def regenerate_mcqs_for_transcript(
             result = service.generate_questions_from_chunk(
                 chunk_text=chunk_text,
                 chunk_id=chunk_row.chunk_id,
-                model=config.ollama_primary_model,
+                model=get_generation_model(config),
             )
         except Exception as exc:
             logger.warning(
@@ -1231,7 +1232,7 @@ def regenerate_mcqs_for_transcript(
             duplicates_removed=0,
             classified=0,
             ranked=0,
-            model_used=config.ollama_primary_model,
+            model_used=get_generation_model(config),
             aborted=True,
             abort_reason="Zero questions generated — preserving existing MCQs",
         )
@@ -1264,7 +1265,7 @@ def regenerate_mcqs_for_transcript(
             duplicates_removed=0,
             classified=0,
             ranked=0,
-            model_used=config.ollama_primary_model,
+            model_used=get_generation_model(config),
             aborted=True,
             abort_reason="Zero valid questions after validation — preserving existing MCQs",
         )
@@ -1281,7 +1282,7 @@ def regenerate_mcqs_for_transcript(
             duplicates_removed=duplicates_removed,
             classified=0,
             ranked=0,
-            model_used=config.ollama_primary_model,
+            model_used=get_generation_model(config),
             aborted=True,
             abort_reason="Zero unique questions after dedup — preserving existing MCQs",
         )
@@ -1296,7 +1297,7 @@ def regenerate_mcqs_for_transcript(
             duplicates_removed=duplicates_removed,
             classified=0,
             ranked=0,
-            model_used=config.ollama_primary_model,
+            model_used=get_generation_model(config),
             aborted=True,
             abort_reason=f"Coverage drop too large: {len(unique)} new vs {previous_count} previous (below {_COVERAGE_RATIO_THRESHOLD:.0%} threshold) — preserving existing MCQs",
         )
@@ -1370,7 +1371,7 @@ def regenerate_mcqs_for_transcript(
         duplicates_removed=duplicates_removed,
         classified=classified,
         ranked=ranked,
-        model_used=config.ollama_primary_model,
+        model_used=get_generation_model(config),
     )
 
 
@@ -1450,7 +1451,7 @@ def preview_regenerate_mcqs(
             result = service.generate_questions_from_chunk(
                 chunk_text=chunk_text,
                 chunk_id=chunk_row.chunk_id,
-                model=config.ollama_primary_model,
+                model=get_generation_model(config),
             )
         except Exception as exc:
             logger.warning(
@@ -1534,5 +1535,5 @@ def preview_regenerate_mcqs(
         chunks_processed=len(chunk_rows),
         duplicates_removed=duplicates_removed,
         questions=preview_items,
-        model_used=config.ollama_primary_model,
+        model_used=get_generation_model(config),
     )

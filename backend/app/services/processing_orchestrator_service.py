@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-
+from app.llm.provider import get_generation_model
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -229,7 +229,7 @@ class ProcessingOrchestratorService:
             transcript_repo.mark_generation_completed(
                 self.db, transcript,
                 question_count=question_count,
-                generation_model=model or self.config.ollama_primary_model,
+                generation_model=model or get_generation_model(self.config),
             )
             self.db.commit()
         elif transcript and transcript.status in ("completed", "completed_with_warnings"):
@@ -344,7 +344,7 @@ class ProcessingOrchestratorService:
                 result = service.generate_from_chunk(
                     chunk_text=chunk.text,
                     chunk_id=chunk.chunk_id,
-                    model=self.config.ollama_primary_model,
+                    model=get_generation_model(self.config),
                 )
                 for fc in result.flashcards:
                     content = {"front": fc.front, "back": fc.back}
@@ -448,7 +448,7 @@ class ProcessingOrchestratorService:
             result = service.synthesize(
                 transcript_id=transcript_id,
                 meeting_id=transcript.meeting_id,
-                model=self.config.ollama_primary_model,
+                model=get_generation_model(self.config),
             )
         except Exception as exc:
             logger.exception(
