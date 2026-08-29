@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
+from app.llm.provider import create_llm_client
 
 from sqlalchemy.orm import Session
 
@@ -60,7 +61,7 @@ class PreprocessingService:
     ) -> None:
         self.db = db
         self.config = config
-        self.ollama_client = ollama_client or OllamaApiClient(config=config)
+        self.ollama_client = ollama_client or create_llm_client(config)
         self.question_service = question_service or QuestionService(
             ollama_client=self.ollama_client,
             config=config,
