@@ -173,7 +173,7 @@ def generate_questions_node(
     transcript_id = state["transcript_id"]
     chunks = state.get("chunks", [])
     if cfg.public_demo_mode:
-        chunks = chunks[:3]
+        chunks = chunks[:1]
 
     logger.info(
         "workflow.generate_questions.started",

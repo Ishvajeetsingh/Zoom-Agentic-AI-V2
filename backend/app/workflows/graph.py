@@ -55,11 +55,20 @@ def _should_continue_after_generate(state: WorkflowState) -> str:
     return "validate_questions"
 
 
-def _should_continue_after_validate(state: WorkflowState) -> str:
+def _should_continue_after_validate(
+    state: WorkflowState,
+    *,
+    public_demo_mode: bool = False,
+) -> str:
     if state.get("status") == WorkflowStatus.FAILED:
         return "handle_failure"
+
     if not state.get("questions_valid"):
+        if public_demo_mode:
+            return "finalize"
+
         return "generate_learning_outputs"
+
     return "deduplicate"
 
 
@@ -69,9 +78,17 @@ def _should_continue_after_dedup(state: WorkflowState) -> str:
     return "persist_questions"
 
 
-def _should_continue_after_persist(state: WorkflowState) -> str:
+def _should_continue_after_persist(
+    state: WorkflowState,
+    *,
+    public_demo_mode: bool = False,
+) -> str:
     if state.get("status") == WorkflowStatus.FAILED:
         return "handle_failure"
+
+    if public_demo_mode:
+        return "finalize"
+
     return "generate_learning_outputs"
 
 
@@ -190,10 +207,14 @@ class QuestionGenerationWorkflow:
         graph.set_entry_point("load_chunks")
 
         graph.add_conditional_edges(
-            "load_chunks",
-            _should_continue_after_load,
+            "persist_questions",
+            lambda state: _should_continue_after_persist(
+                state,
+                public_demo_mode=self.config.public_demo_mode,
+            ),
             {
-                "assess_content": "assess_content",
+                "finalize": "finalize",
+                "generate_learning_outputs": "generate_learning_outputs",
                 "handle_failure": "handle_failure",
             },
         )
@@ -219,9 +240,13 @@ class QuestionGenerationWorkflow:
 
         graph.add_conditional_edges(
             "validate_questions",
-            _should_continue_after_validate,
+            lambda state: _should_continue_after_validate(
+                state,
+                public_demo_mode=self.config.public_demo_mode,
+            ),
             {
                 "deduplicate": "deduplicate",
+                "finalize": "finalize",
                 "generate_learning_outputs": "generate_learning_outputs",
                 "handle_failure": "handle_failure",
             },
@@ -232,15 +257,6 @@ class QuestionGenerationWorkflow:
             _should_continue_after_dedup,
             {
                 "persist_questions": "persist_questions",
-                "handle_failure": "handle_failure",
-            },
-        )
-
-        graph.add_conditional_edges(
-            "persist_questions",
-            _should_continue_after_persist,
-            {
-                "generate_learning_outputs": "generate_learning_outputs",
                 "handle_failure": "handle_failure",
             },
         )

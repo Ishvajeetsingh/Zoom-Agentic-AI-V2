@@ -796,10 +796,29 @@ class QuestionService:
         final_questions: list[GeneratedQuestion] = []
         final_response: GenerationResponse | None = None
 
-        concepts = self._extract_concepts(chunk_text, chunk_id, model=model)
-        concepts_summary = self._build_concepts_summary(concepts)
+        if self.config.public_demo_mode:
+            concepts = []
+            concepts_summary = (
+                "Use the transcript directly. Identify the most educationally "
+                "important concepts and generate grounded questions from them."
+            )
+        else:
+            concepts = self._extract_concepts(
+                chunk_text,
+                chunk_id,
+                model=model,
+            )
+            concepts_summary = self._build_concepts_summary(
+                concepts
+            )
 
-        for attempt_target in [target_count, max(target_count - 1, 2), 2]:
+        attempt_targets = (
+            [target_count]
+            if self.config.public_demo_mode
+            else [target_count, max(target_count - 1, 2), 2]
+        )
+
+        for attempt_target in attempt_targets:
             prompt = (
                 f"Generate {attempt_target} MCQs from the educational concepts below.\n\n"
                 f"--- TRANSCRIPT ---\n{chunk_text}\n--- END ---\n\n"
@@ -863,9 +882,17 @@ class QuestionService:
             final_response = response
 
         if final_questions:
-            reviewed = self._review_questions(
-                final_questions, chunk_text, concepts_summary, chunk_id, model=model,
-            )
+            if self.config.public_demo_mode:
+                reviewed = final_questions
+            else:
+                reviewed = self._review_questions(
+                    final_questions,
+                    chunk_text,
+                    concepts_summary,
+                    chunk_id,
+                    model=model,
+                )
+
             scored: list[GeneratedQuestion] = []
             for q in reviewed:
                 edu_score = self.compute_educational_score(
