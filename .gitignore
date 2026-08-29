@@ -32,7 +32,8 @@ dist/
 Thumbs.db
 
 # Transcripts
-transcripts/
+/backend/transcripts/
+/transcripts/
 
 # Pytest
 .pytest_cache/
