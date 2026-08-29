@@ -253,15 +253,14 @@ def generate_questions_node(
                 )
 
             except Exception as exc:
-                last_exc = exc
-                logger.warning(
-                    "workflow.generate_questions.chunk_failed",
-                    extra={
-                        "transcript_id": str(transcript_id),
-                        "chunk_index": chunk.chunk_index,
-                        "attempt": attempt,
-                        "error": str(exc),
-                    },
+              last_exc = exc
+              logger.warning(
+                  "workflow.generate_questions.chunk_failed: "
+                  "transcript_id=%s chunk_index=%s attempt=%s error=%s",
+                  str(transcript_id),
+                  chunk.chunk_index,
+                  attempt,
+                  str(exc),
                 )
 
             if (
