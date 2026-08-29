@@ -253,9 +253,12 @@ setPipelineSteps([
                 stats={completionStats}
                 actions={
                   <>
-                    <a href={`#/transcripts/${uploadResult?.transcript_id}`} className="btn-primary">
-                      View Transcript
-                    </a>
+                    <a
+  href={`#/public-results/${uploadResult?.transcript_id}`}
+  className="btn-primary"
+>
+  View Generated Questions
+</a>
                     <button className="btn-secondary" onClick={reset}>
                       <RotateCcw size={16} /> Upload Another
                     </button>

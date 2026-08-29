@@ -12,10 +12,21 @@ export interface QuestionFilters {
   order?: "asc" | "desc";
 }
 
-export function getTranscriptQuestions(transcriptId: string, filters?: QuestionFilters) {
+export function getTranscriptQuestions(
+  transcriptId: string,
+  filters?: QuestionFilters
+) {
   return apiGet<PaginatedListResponse<Question>>(
     `/transcripts/${transcriptId}/questions`,
     filters as Record<string, string | number>
+  );
+}
+
+export function getPublicTranscriptQuestions(
+  transcriptId: string
+) {
+  return apiGet<PaginatedListResponse<Question>>(
+    `/public-demo/transcripts/${transcriptId}/questions`
   );
 }
 

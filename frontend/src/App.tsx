@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Lock, ShieldCheck } from "lucide-react";
+import { PublicResultsPage } from "./pages/PublicResultsPage";
 
 import { DashboardPage } from "./pages/DashboardPage";
 import { TranscriptListPage } from "./pages/TranscriptListPage";
@@ -27,6 +28,7 @@ type Route =
   | { page: "transcripts" }
   | { page: "transcript-detail"; transcriptId: string }
   | { page: "questions" }
+  | { page: "public-results"; transcriptId: string }
   | { page: "runs" }
   | { page: "meetings" }
   | { page: "meeting-detail"; meetingId: string }
@@ -82,7 +84,17 @@ function parseHash(hash: string): Route {
     };
   }
 
+  const publicResultsMatch =
+  hash.match(
+    /^#\/public-results\/([^/]+)$/
+  );
 
+if (publicResultsMatch) {
+  return {
+    page: "public-results",
+    transcriptId: publicResultsMatch[1],
+  };
+}
   const transcriptDetailMatch =
     hash.match(
       /^#\/transcripts\/([^/]+)$/
@@ -533,16 +545,21 @@ export default function App() {
       return <TranscriptListPage />;
 
     case "transcript-detail":
-      return (
-        <TranscriptDetailPage
-          transcriptId={
-            route.transcriptId
-          }
-        />
-      );
+  return (
+    <TranscriptDetailPage
+      transcriptId={route.transcriptId}
+    />
+  );
 
-    case "questions":
-      return <QuestionsPage />;
+case "public-results":
+  return (
+    <PublicResultsPage
+      transcriptId={route.transcriptId}
+    />
+  );
+
+case "questions":
+  return <QuestionsPage />;
 
     case "runs":
       return <RunsPage />;
