@@ -49,3 +49,5 @@ frontend/.env.local
 .vite/
 
 portfolio_meetings.json
+# Python package build artifacts
+backend/build/
