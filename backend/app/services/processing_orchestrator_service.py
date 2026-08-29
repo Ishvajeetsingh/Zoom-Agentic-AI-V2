@@ -298,6 +298,17 @@ class ProcessingOrchestratorService:
         }
 
     def _step_generate_learning_outputs(self, transcript_id: uuid.UUID) -> dict:
+        if self.config.public_demo_mode:
+            logger.info(
+                "orchestrator.learning_outputs_skipped_public_demo",
+                extra={
+                    "transcript_id": str(transcript_id),
+                },
+            )
+            return {
+                "learning_outputs_persisted": 0,
+                "skipped_reason": "public_demo_quota",
+            }
         from app.db.models.transcript_chunk import TranscriptChunk
 
         transcript = transcript_repo.get_by_id(self.db, transcript_id)
@@ -422,6 +433,17 @@ class ProcessingOrchestratorService:
         return result
 
     def _step_synthesize(self, transcript_id: uuid.UUID) -> dict:
+        if self.config.public_demo_mode:
+            logger.info(
+                "orchestrator.synthesis_skipped_public_demo",
+                extra={
+                    "transcript_id": str(transcript_id),
+                },
+            )
+            return {
+                "insights_persisted": False,
+                "skipped_reason": "public_demo_quota",
+            }
         transcript = transcript_repo.get_by_id(self.db, transcript_id)
         if transcript is None:
             raise OrchestrationError(f"Transcript not found: {transcript_id}")

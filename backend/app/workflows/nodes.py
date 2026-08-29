@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 
 from app.core.config import Settings, settings
+from app.llm.provider import get_generation_model
 from app.core.logging import get_logger
 from app.db.repositories import learning_outputs as learning_output_repo
 from app.db.repositories import meeting_insights as meeting_insights_repo
@@ -19,8 +20,10 @@ _VERY_SHORT_TRANSCRIPT_WORD_THRESHOLD = 100
 
 
 def assess_content_node(state: WorkflowState, *, db_session=None) -> dict:
+
     transcript_id = state["transcript_id"]
     chunks = state.get("chunks", [])
+
     total_words = sum(c.word_count for c in chunks) if chunks else 0
 
     if db_session is not None:
@@ -169,6 +172,8 @@ def generate_questions_node(
     cfg = config or settings
     transcript_id = state["transcript_id"]
     chunks = state.get("chunks", [])
+    if cfg.public_demo_mode:
+        chunks = chunks[:3]
 
     logger.info(
         "workflow.generate_questions.started",
@@ -193,12 +198,19 @@ def generate_questions_node(
         chunk_questions: list[QuestionData] = []
         last_exc: Exception | None = None
 
-        for attempt in range(1, _GENERATION_MAX_RETRIES + 2):
+        max_attempts = (
+            1
+            if cfg.public_demo_mode
+            else _GENERATION_MAX_RETRIES + 1
+        )
+
+        for attempt in range(1, max_attempts + 1):
             try:
                 result = service.generate_questions_from_chunk(
                     chunk_text=chunk.text,
                     chunk_id=chunk.chunk_id,
-                    model=cfg.ollama_primary_model,
+                    model=get_generation_model(cfg),
+                    num_questions=2 if cfg.public_demo_mode else None,
                 )
 
                 if result.questions:
@@ -252,8 +264,13 @@ def generate_questions_node(
                     },
                 )
 
-            if attempt <= _GENERATION_MAX_RETRIES:
-                time.sleep(_GENERATION_RETRY_DELAY_SECONDS)
+            if (
+                not cfg.public_demo_mode
+                and attempt <= _GENERATION_MAX_RETRIES
+            ):
+                time.sleep(
+                    _GENERATION_RETRY_DELAY_SECONDS
+                )
 
         all_questions.extend(chunk_questions)
         questions_by_chunk[chunk.chunk_index] = len(chunk_questions)
