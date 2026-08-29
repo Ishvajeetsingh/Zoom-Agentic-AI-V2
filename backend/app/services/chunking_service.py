@@ -1,6 +1,7 @@
 import uuid
 from dataclasses import dataclass
 from decimal import Decimal
+from app.core.config import settings
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -65,14 +66,36 @@ class ChunkingService:
         try:
             segments = self._load_segments(transcript)
             if not segments:
-                raise ChunkingError(f"No segments found for transcript {transcript_id}")
+                raise ChunkingError(
+                    f"No segments found for transcript {transcript_id}"
+                )
 
             chunking_result = self.chunker.chunk(segments)
             if not chunking_result.chunks:
-                raise ChunkingError(f"Chunker produced no chunks for transcript {transcript_id}")
+                raise ChunkingError(
+                    f"Chunker produced no chunks for transcript {transcript_id}"
+                )
 
-            self._persist_chunks(transcript, chunking_result.chunks)
-            self._generate_embeddings(transcript)
+            self._persist_chunks(
+                transcript,
+                chunking_result.chunks,
+            )
+
+            if settings.public_demo_mode:
+                logger.info(
+                    "embedding.skipped_public_demo",
+                    extra={
+                        "transcript_id": str(transcript.id),
+                        "reason": (
+                            "Public portfolio mode does not require "
+                            "Ollama embeddings."
+                        ),
+                    },
+                )
+            else:
+                self._generate_embeddings(
+                    transcript
+                )
 
             transcript_repo.mark_chunked(
                 self.db,
@@ -83,20 +106,33 @@ class ChunkingService:
 
         except ChunkingError:
             self.db.rollback()
-            transcript = transcript_repo.get_by_id(self.db, transcript_id)
+            transcript = transcript_repo.get_by_id(
+                self.db,
+                transcript_id,
+            )
             if transcript is not None:
                 transcript_repo.mark_chunking_failed(
-                    self.db, transcript, "Chunking produced no output"
+                    self.db,
+                    transcript,
+                    "Chunking produced no output",
                 )
                 self.db.commit()
             raise
 
         except Exception as exc:
             self.db.rollback()
-            transcript = transcript_repo.get_by_id(self.db, transcript_id)
+            transcript = transcript_repo.get_by_id(
+                self.db,
+                transcript_id,
+            )
             if transcript is not None:
-                transcript_repo.mark_chunking_failed(self.db, transcript, str(exc))
+                transcript_repo.mark_chunking_failed(
+                    self.db,
+                    transcript,
+                    str(exc),
+                )
                 self.db.commit()
+
             logger.exception(
                 "chunking.failed",
                 extra={
