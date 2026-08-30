@@ -205,6 +205,14 @@ class QuestionGenerationWorkflow:
         graph.add_node("handle_failure", handle_failure_node)
 
         graph.set_entry_point("load_chunks")
+        graph.add_conditional_edges(
+            "load_chunks",
+            _should_continue_after_load,
+            {
+                "assess_content": "assess_content",
+                "handle_failure": "handle_failure",
+            },
+        )
 
         graph.add_conditional_edges(
             "persist_questions",
