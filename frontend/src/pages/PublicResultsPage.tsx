@@ -179,8 +179,22 @@ export function PublicResultsPage({
                     }}
                   >
                     {question.options.map((option, optionIndex) => {
-                      const isCorrect =
-                        option === question.correct_answer;
+                      const optionLetter = String.fromCharCode(
+  65 + optionIndex
+);
+
+const correctAnswer =
+  question.correct_answer
+    ?.trim()
+    .toUpperCase();
+
+const isCorrect =
+  correctAnswer === optionLetter ||
+  option.trim().toUpperCase() === correctAnswer ||
+  option
+    .trim()
+    .toUpperCase()
+    .startsWith(`${correctAnswer}:`);
 
                       return (
                         <div
@@ -206,12 +220,12 @@ export function PublicResultsPage({
 
                           <div>
                             <strong>
-                              {String.fromCharCode(
-                                65 + optionIndex
-                              )}
-                              .
-                            </strong>{" "}
-                            {option}
+  {optionLetter}.
+</strong>{" "}
+{option.replace(
+  /^[A-D]\s*[:.)-]\s*/i,
+  ""
+)}
 
                             {isCorrect && (
                               <div
